@@ -1,0 +1,322 @@
+# Tokenized Real World Assets (RWA) Platform on Solana
+
+Build a production-grade dApp for fractional real estate ownership with compliance, real-time pricing, and a modern UI.
+
+---
+
+## User Review Required
+
+> [!IMPORTANT]
+> **Technology Choices:**
+> - **Anchor 0.32.x** with SPL Token (not Token-2022 for simplicity—Token-2022 can be a future upgrade)
+> - **Pyth Network** for oracle price feeds (pull-based model)
+> - **Next.js 14 (App Router)** + **Tailwind CSS** + **Framer Motion** for frontend
+> - **Node.js + Express + MongoDB** for backend
+> - **Phantom Wallet** via `@solana/wallet-adapter`
+
+> [!WARNING]
+> **Solana Toolchain Required:** You need Rust, Solana CLI, and Anchor CLI installed locally for smart contract development. The frontend/backend can run independently against devnet.
+
+> [!CAUTION]
+> **This is a large project (~50+ files).** I'll build it incrementally in phases. The smart contract layer is simulated for local dev since we can't compile Rust/Anchor in this environment, but all code will be production-correct and deployable.
+
+---
+
+## Project Structure
+
+```
+rwa-solana/
+├── programs/                    # Anchor smart contracts
+│   └── rwa-tokenization/
+│       ├── Cargo.toml
+│       └── src/
+│           ├── lib.rs           # Program entry point
+│           ├── instructions/    # Instruction handlers
+│           │   ├── mod.rs
+│           │   ├── initialize_asset.rs
+│           │   ├── buy_shares.rs
+│           │   ├── sell_shares.rs
+│           │   ├── transfer_shares.rs
+│           │   ├── distribute_yield.rs
+│           │   ├── whitelist_user.rs
+│           │   └── update_price.rs
+│           ├── state/           # Account structures
+│           │   ├── mod.rs
+│           │   ├── asset.rs
+│           │   ├── user_ownership.rs
+│           │   ├── treasury.rs
+│           │   └── whitelist.rs
+│           └── errors.rs        # Custom error codes
+├── tests/                       # Anchor integration tests
+│   └── rwa-tokenization.ts
+├── backend/                     # Express.js API server
+│   ├── package.json
+│   ├── .env.example
+│   ├── src/
+│   │   ├── index.js
+│   │   ├── config/
+│   │   │   ├── database.js
+│   │   │   └── solana.js
+│   │   ├── models/
+│   │   │   ├── Asset.js
+│   │   │   ├── User.js
+│   │   │   ├── Transaction.js
+│   │   │   └── Portfolio.js
+│   │   ├── routes/
+│   │   │   ├── assets.js
+│   │   │   ├── trading.js
+│   │   │   ├── portfolio.js
+│   │   │   ├── kyc.js
+│   │   │   └── admin.js
+│   │   ├── middleware/
+│   │   │   ├── auth.js
+│   │   │   └── validation.js
+│   │   ├── services/
+│   │   │   ├── solanaService.js
+│   │   │   ├── priceService.js
+│   │   │   └── kycService.js
+│   │   └── utils/
+│   │       └── helpers.js
+│   └── scripts/
+│       └── seed.js
+├── frontend/                    # Next.js application
+│   ├── package.json
+│   ├── next.config.js
+│   ├── tailwind.config.js
+│   ├── postcss.config.js
+│   ├── .env.local.example
+│   ├── public/
+│   ├── src/
+│   │   ├── app/
+│   │   │   ├── layout.tsx
+│   │   │   ├── page.tsx           # Landing page
+│   │   │   ├── globals.css
+│   │   │   ├── dashboard/
+│   │   │   │   └── page.tsx
+│   │   │   ├── marketplace/
+│   │   │   │   └── page.tsx
+│   │   │   ├── asset/
+│   │   │   │   └── [id]/
+│   │   │   │       └── page.tsx
+│   │   │   ├── portfolio/
+│   │   │   │   └── page.tsx
+│   │   │   ├── transactions/
+│   │   │   │   └── page.tsx
+│   │   │   └── admin/
+│   │   │       └── page.tsx
+│   │   ├── components/
+│   │   │   ├── layout/
+│   │   │   │   ├── Navbar.tsx
+│   │   │   │   ├── Sidebar.tsx
+│   │   │   │   └── Footer.tsx
+│   │   │   ├── wallet/
+│   │   │   │   ├── WalletProvider.tsx
+│   │   │   │   └── WalletButton.tsx
+│   │   │   ├── marketplace/
+│   │   │   │   ├── AssetCard.tsx
+│   │   │   │   └── AssetGrid.tsx
+│   │   │   ├── trading/
+│   │   │   │   ├── BuyModal.tsx
+│   │   │   │   └── SellModal.tsx
+│   │   │   ├── dashboard/
+│   │   │   │   ├── PortfolioChart.tsx
+│   │   │   │   ├── StatsCards.tsx
+│   │   │   │   └── RecentActivity.tsx
+│   │   │   ├── asset/
+│   │   │   │   ├── AssetDetails.tsx
+│   │   │   │   ├── OwnershipBreakdown.tsx
+│   │   │   │   └── PriceHistory.tsx
+│   │   │   └── ui/
+│   │   │       ├── GlassCard.tsx
+│   │   │       ├── AnimatedCounter.tsx
+│   │   │       ├── LoadingSpinner.tsx
+│   │   │       └── GradientButton.tsx
+│   │   ├── hooks/
+│   │   │   ├── useSolana.ts
+│   │   │   ├── useAssets.ts
+│   │   │   ├── usePortfolio.ts
+│   │   │   └── useTransactions.ts
+│   │   ├── lib/
+│   │   │   ├── api.ts
+│   │   │   ├── solana.ts
+│   │   │   └── constants.ts
+│   │   └── types/
+│   │       └── index.ts
+├── Anchor.toml
+├── Cargo.toml                   # Workspace Cargo.toml
+├── package.json                 # Root package.json (Anchor tests)
+└── README.md
+```
+
+---
+
+## Proposed Changes
+
+### Phase 1: Solana Smart Contracts (Anchor)
+
+#### [NEW] [Anchor.toml](file:///c:/Users/Tushar/rwa-solana/Anchor.toml)
+- Workspace configuration for Anchor
+- Program ID, cluster settings (localnet/devnet)
+- Test and deploy scripts
+
+#### [NEW] [Cargo.toml](file:///c:/Users/Tushar/rwa-solana/Cargo.toml)
+- Rust workspace manifest
+- Member: `programs/rwa-tokenization`
+
+#### [NEW] [programs/rwa-tokenization/](file:///c:/Users/Tushar/rwa-solana/programs/rwa-tokenization/)
+
+**State Accounts (PDAs):**
+- `AssetAccount` — name, symbol, total_supply, available_supply, price_per_token, uri, authority, treasury, oracle_feed, is_active
+- `UserOwnership` — owner pubkey, asset pubkey, shares_owned, purchase_price_avg, is_whitelisted
+- `TreasuryVault` — asset pubkey, total_collected, yield_distributed, bump
+- `WhitelistEntry` — user pubkey, is_verified, verification_timestamp, authority
+
+**Instructions:**
+| Instruction | Description |
+|---|---|
+| `initialize_asset()` | Admin creates a new tokenized property with SPL mint + metadata |
+| `whitelist_user()` | Admin whitelists a KYC-verified user |
+| `buy_shares()` | User purchases fractional tokens (checks whitelist, available supply) |
+| `sell_shares()` | User sells tokens back to treasury |
+| `transfer_shares()` | P2P transfer between whitelisted users |
+| `distribute_yield()` | Admin distributes rental yield proportionally |
+| `update_price()` | Update token price from Pyth oracle feed |
+
+**Validation Rules:**
+- Whitelist check on all buy/sell/transfer
+- Overflow-safe arithmetic (`checked_add`, `checked_sub`, `checked_mul`)
+- Ownership verification before selling
+- Supply cap enforcement
+- PDA seed derivation for deterministic addressing
+
+**Oracle Integration:**
+- Pyth `PriceUpdateV2` account consumed in `update_price`
+- Feed ID configurable per asset
+- Staleness check (max 60s age)
+
+---
+
+### Phase 2: Backend (Node.js + Express + MongoDB)
+
+#### [NEW] [backend/](file:///c:/Users/Tushar/rwa-solana/backend/)
+
+**Models:**
+| Model | Fields |
+|---|---|
+| `Asset` | onChainId, name, location, description, images[], documents[], totalSupply, availableSupply, pricePerToken, propertyValue, annualYield, assetType, status |
+| `User` | walletAddress, name, email, kycStatus, kycDocuments[], role (user/admin), createdAt |
+| `Transaction` | txHash, userWallet, assetId, type (buy/sell/transfer/yield), amount, shares, priceAtTime, timestamp |
+| `Portfolio` | walletAddress, holdings[{assetId, shares, avgBuyPrice}], totalValue |
+
+**API Routes:**
+
+| Method | Route | Description |
+|---|---|---|
+| `GET` | `/api/assets` | List all tokenized properties |
+| `GET` | `/api/assets/:id` | Get asset details |
+| `POST` | `/api/assets` | Admin: create new asset |
+| `DELETE` | `/api/assets/:id` | Admin: remove asset |
+| `POST` | `/api/buy` | Execute buy + record transaction |
+| `POST` | `/api/sell` | Execute sell + record transaction |
+| `GET` | `/api/portfolio/:wallet` | Get user portfolio |
+| `POST` | `/api/kyc/verify` | Submit KYC verification |
+| `GET` | `/api/kyc/status/:wallet` | Check KYC status |
+| `GET` | `/api/transactions/:wallet` | User transaction history |
+| `GET` | `/api/admin/stats` | Admin dashboard stats |
+
+**Services:**
+- `solanaService.js` — Interact with on-chain program via `@coral-xyz/anchor`
+- `priceService.js` — Fetch Pyth price feeds via Hermes API
+- `kycService.js` — Mock KYC verification system
+
+---
+
+### Phase 3: Frontend (Next.js + Tailwind + Framer Motion)
+
+#### [NEW] [frontend/](file:///c:/Users/Tushar/rwa-solana/frontend/)
+
+**Design System:**
+- Dark theme with gradient accents (deep navy → violet → cyan)
+- Glassmorphism cards with backdrop blur
+- Inter font from Google Fonts
+- Smooth page transitions via Framer Motion
+- Responsive grid layouts
+
+**Pages:**
+
+| Page | Features |
+|---|---|
+| **Landing** | Hero with animated gradient orb, stats counters, feature cards, CTA |
+| **Dashboard** | Portfolio value chart (Recharts), asset distribution pie, stats cards, recent activity |
+| **Marketplace** | Filterable grid of property cards, search, sort by price/yield/location |
+| **Asset Detail** | Property gallery, buy/sell interface, ownership pie chart, price history line chart, transaction log |
+| **Portfolio** | Holdings table, P&L tracking, yield earnings |
+| **Transactions** | Paginated transaction history with filters |
+| **Admin** | Add/remove assets, KYC management panel, platform stats |
+
+**Wallet Integration:**
+- `@solana/wallet-adapter-react` + Phantom
+- Connect/disconnect toggle in navbar
+- Auto-sync wallet with backend user profile
+- Display SOL balance + SPL token holdings
+
+---
+
+### Phase 4: Integration & Deployment
+
+#### Data Flow
+```
+User Action → Frontend (Next.js)
+    → Backend API (Express) → validates & records
+    → Solana Smart Contract (Anchor) → on-chain execution
+    → Backend listener polls for confirmation
+    → Frontend updates via API response
+```
+
+#### Deployment Targets
+| Layer | Target |
+|---|---|
+| Smart Contract | Solana Devnet (with mainnet scripts) |
+| Backend | Render / Railway (Docker-ready) |
+| Frontend | Vercel |
+
+---
+
+## Open Questions
+
+> [!IMPORTANT]
+> 1. **MongoDB:** Should I use a local MongoDB instance or MongoDB Atlas (cloud)? For local dev, I'll default to `mongodb://localhost:27017/rwa-solana`.
+> 2. **Tailwind Version:** The request specifies Tailwind CSS. Should I use **Tailwind v3** (stable) or **Tailwind v4** (latest)? I'll default to v3 for maximum ecosystem compatibility.
+> 3. **Mock vs Real Oracle:** Since we're targeting devnet, Pyth feeds may have limited asset coverage. I'll implement the oracle integration structure but use mock price data for properties that don't have real feeds. Is that acceptable?
+> 4. **Rust Compilation:** I cannot compile Rust/Anchor in this environment. I'll write all the smart contract code correctly, but you'll need to run `anchor build` and `anchor deploy` locally. Is that understood?
+
+---
+
+## Verification Plan
+
+### Automated Tests
+- **Smart Contract:** Anchor test suite in TypeScript (`anchor test`)
+- **Backend:** API endpoint testing with sample data + seed script
+- **Frontend:** Visual verification via browser tool, responsive checks
+
+### Manual Verification
+- Run `npm run dev` for frontend at `localhost:3000`
+- Run backend server at `localhost:5000`
+- Test wallet connect flow with Phantom
+- Verify buy/sell flow via UI → API → (mock) on-chain
+- Run `anchor build` and `anchor deploy --provider.cluster devnet` for smart contracts
+
+---
+
+## Implementation Order
+
+| Step | Component | Est. Files |
+|---|---|---|
+| 1 | Smart contracts (Anchor/Rust) | ~15 files |
+| 2 | Backend setup + MongoDB models | ~15 files |
+| 3 | Backend API routes + services | ~10 files |
+| 4 | Frontend scaffold (Next.js + Tailwind) | ~5 files |
+| 5 | Frontend pages + components | ~25 files |
+| 6 | Wallet + Solana integration | ~5 files |
+| 7 | Polish, testing, deployment configs | ~5 files |
+| **Total** | | **~80 files** |

@@ -1,0 +1,184 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Outfit:wght@400;500;600;700;800&display=swap');
+
+@layer base {
+  :root {
+    --institutional-slate: 15 23 42;
+    --institutional-emerald: 16 185 129;
+    --institutional-indigo: 99 102 241;
+  }
+
+  body {
+    @apply bg-surface-950 text-white font-sans antialiased selection:bg-emerald-500/30 selection:text-white;
+    background: radial-gradient(circle at 50% 0%, #171717 0%, #0a0a0a 100%);
+    min-height: 100vh;
+  }
+}
+
+@layer components {
+  /* Ultra-Premium Glass Panel */
+  .institutional-glass {
+    @apply relative overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.02] backdrop-blur-[32px] shadow-[0_8px_32px_rgba(0,0,0,0.4)];
+  }
+
+  .institutional-glass-hover {
+    @apply institutional-glass cursor-pointer transition-all duration-[600ms] ease-out hover:border-white/[0.15] hover:bg-white/[0.04] hover:shadow-[0_12px_48px_rgba(16,185,129,0.1)] hover:-translate-y-1.5;
+  }
+
+  /* Animated Glow Border */
+  .glow-border {
+    @apply relative rounded-2xl;
+  }
+
+  .glow-border::before {
+    content: '';
+    @apply absolute -inset-[1px] rounded-2xl opacity-0 transition-opacity duration-700 bg-gradient-to-r from-emerald-500/50 via-indigo-500/50 to-emerald-500/50;
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+  }
+
+  .glow-border:hover::before {
+    @apply opacity-100;
+  }
+
+  /* Typography */
+  .heading-premium {
+    @apply font-display font-black tracking-tight text-white;
+  }
+
+  .text-gradient-emerald {
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 via-emerald-200 to-emerald-500;
+  }
+
+  /* Smooth Buttons */
+  .btn-institutional {
+    @apply relative inline-flex items-center justify-center px-6 py-3.5 rounded-xl font-bold text-white transition-all duration-500 ease-out overflow-hidden active:scale-[0.98];
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    box-shadow: 0 8px 24px -6px rgba(16, 185, 129, 0.4), inset 0 1px 0 rgba(255,255,255,0.2);
+  }
+
+  .btn-institutional:hover {
+    box-shadow: 0 12px 32px -8px rgba(16, 185, 129, 0.6), inset 0 1px 0 rgba(255,255,255,0.3);
+    transform: translateY(-1px);
+  }
+
+  .btn-institutional::after {
+    content: '';
+    @apply absolute inset-0 opacity-0 transition-opacity duration-300 bg-gradient-to-r from-white/0 via-white/20 to-white/0;
+    transform: skewX(-20deg) translateX(-150%);
+  }
+
+  .btn-institutional:hover::after {
+    @apply opacity-100;
+    animation: shimmer 1.5s infinite;
+  }
+
+  .btn-secondary-institutional {
+    @apply inline-flex items-center justify-center px-6 py-3.5 rounded-xl font-semibold text-white/70 border border-white/10 bg-white/5 transition-all duration-300 ease-out hover:text-white hover:bg-white/10 hover:border-white/20 hover:shadow-lg active:scale-[0.98];
+  }
+
+  /* Input */
+  .input-institutional {
+    @apply w-full px-4 py-3.5 rounded-xl border border-white/10 bg-white/[0.02] text-white placeholder-white/20 focus:outline-none focus:border-emerald-500/50 focus:bg-emerald-500/5 focus:shadow-[0_0_20px_rgba(16,185,129,0.1)] transition-all duration-300;
+  }
+}
+
+/* Solana Wallet Modal Overrides */
+.wallet-adapter-modal-wrapper {
+  @apply bg-surface-950/90 backdrop-blur-2xl border border-white/10 rounded-3xl shadow-2xl !important;
+  font-family: 'Outfit', sans-serif !important;
+}
+
+.wallet-adapter-modal-button-close {
+  @apply bg-white/5 hover:bg-white/10 transition-colors !important;
+}
+
+.wallet-adapter-modal-title {
+  @apply text-white font-display font-black uppercase tracking-widest text-lg !important;
+}
+
+.wallet-adapter-modal-list {
+  @apply gap-2 !important;
+}
+
+.wallet-adapter-modal-list .wallet-adapter-button {
+  @apply bg-white/5 border border-white/5 rounded-xl px-4 py-3 text-sm font-bold text-white/70 hover:bg-emerald-500/10 hover:text-white hover:border-emerald-500/30 transition-all !important;
+}
+
+.wallet-adapter-modal-list .wallet-adapter-button i {
+  @apply w-6 h-6 mr-3 !important;
+}
+
+/* Premium Wallet specific animations */
+@keyframes pulse-emerald {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 20px 2px rgba(16, 185, 129, 0.6);
+  }
+}
+
+.animate-pulse-emerald {
+  animation: pulse-emerald 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes sweep {
+  0% { transform: translateX(-100%); }
+  50%, 100% { transform: translateX(100%); }
+}
+
+.sweep-effect {
+  position: relative;
+  overflow: hidden;
+}
+
+.sweep-effect::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
+  animation: sweep 3s infinite;
+}
+
+
+@keyframes shimmer {
+  100% {
+    transform: skewX(-20deg) translateX(150%);
+  }
+}
+
+@keyframes marquee {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+.animate-marquee-slower {
+  animation: marquee 60s linear infinite;
+}
+
+.pause {
+  animation-play-state: paused;
+}
+
+/* Base scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-surface-950;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-white/10 rounded-full hover:bg-white/20 transition-colors;
+}
