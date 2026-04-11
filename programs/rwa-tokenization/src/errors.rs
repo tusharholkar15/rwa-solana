@@ -78,4 +78,123 @@ pub enum RwaError {
     /// 6018 - Insufficient SOL balance for purchase
     #[msg("Insufficient SOL balance for this purchase")]
     InsufficientFunds,
+
+    // ═══════════════════════════════════════════════════════
+    // V2 ERROR CODES — Institutional Upgrade
+    // ═══════════════════════════════════════════════════════
+
+    /// 6019 - User's compliance tier is below the asset's minimum requirement
+    #[msg("Compliance tier insufficient for this asset")]
+    InsufficientTier,
+
+    /// 6020 - User has unresolved AML flags
+    #[msg("User is flagged by AML screening")]
+    AmlFlagged,
+
+    /// 6021 - User's jurisdiction is not allowed for this asset
+    #[msg("Trading not permitted from this jurisdiction")]
+    JurisdictionBlocked,
+
+    /// 6022 - Transaction exceeds user's investment limit
+    #[msg("Transaction exceeds investment limit")]
+    InvestmentLimitExceeded,
+
+    /// 6023 - AMM swap exceeds anti-whale limit (2% of pool)
+    #[msg("Swap amount exceeds pool anti-whale limit")]
+    SwapExceedsWhaleLimit,
+
+    /// 6024 - Proposal deposit insufficient or user lacks minimum token ownership
+    #[msg("Insufficient tokens to create governance proposal")]
+    ProposalCreationFailed,
+
+    /// 6025 - Escrow has already been funded
+    #[msg("Escrow is already funded")]
+    EscrowAlreadyFunded,
+
+    /// 6026 - Dispute window has expired or not yet started
+    #[msg("Dispute window expired")]
+    DisputeWindowExpired,
+
+    /// 6027 - Platform emergency pause is active
+    #[msg("Platform is paused — emergency circuit breaker active")]
+    PlatformPaused,
+
+    /// 6028 - Oracle price spread between sources exceeds safety threshold
+    #[msg("Oracle price spread exceeds maximum allowed divergence")]
+    OracleSpreadExceeded,
+
+    /// 6029 - Liquidity pool is not active
+    #[msg("Liquidity pool is not active")]
+    PoolNotActive,
+
+    /// 6030 - Insufficient liquidity in pool for this swap
+    #[msg("Insufficient pool liquidity")]
+    InsufficientLiquidity,
+
+    /// 6031 - Slippage tolerance exceeded
+    #[msg("Output amount is below minimum acceptable (slippage exceeded)")]
+    SlippageExceeded,
+
+    /// 6032 - Asset lifecycle status doesn't permit this operation
+    #[msg("Asset lifecycle status does not permit this operation")]
+    InvalidLifecycleStatus,
+
+    /// 6033 - Verifier is not registered or has expired
+    #[msg("Verifier is not registered or has expired")]
+    InvalidVerifier,
+
+    /// 6034 - Asset fraud score exceeds activation threshold
+    #[msg("Fraud score too high to activate asset")]
+    FraudScoreTooHigh,
+
+    /// 6035 - Governance voting has ended
+    #[msg("Voting period has ended for this proposal")]
+    VotingEnded,
+
+    /// 6036 - Governance voting has not started yet
+    #[msg("Voting has not started yet")]
+    VotingNotStarted,
+
+    /// 6037 - User has already voted on this proposal
+    #[msg("User has already voted on this proposal")]
+    AlreadyVoted,
+
+    /// 6038 - Proposal has not passed or already executed
+    #[msg("Proposal cannot be executed")]
+    ProposalNotExecutable,
+
+    /// 6039 - Escrow settlement is currently in progress (mutex)
+    #[msg("Escrow settlement already in progress")]
+    EscrowSettling,
+
+    /// 6040 - Feature is not enabled on this platform
+    #[msg("This feature is not currently enabled")]
+    FeatureDisabled,
+
+    /// 6041 - Order is not active (filled, cancelled, or expired)
+    #[msg("Order is not active")]
+    OrderNotActive,
+
+    /// 6042 - Escrow dispute is not valid at this stage
+    #[msg("Cannot dispute escrow in its current status")]
+    InvalidEscrowStatus,
+
+    /// 6043 - LP token supply mismatch
+    #[msg("LP token supply validation failed")]
+    LpSupplyMismatch,
+
+    /// 6044 - Quorum not met for governance proposal
+    #[msg("Governance quorum was not reached")]
+    QuorumNotMet,
+
+    /// 6045 - Price deviation too high for auto-update
+    #[msg("Price deviation exceeds safe threshold — manual review required")]
+    PriceDeviationTooHigh,
+    /// 6046 - Oracle circuit breaker is tripped
+    #[msg("Oracle circuit breaker is tripped. Guardian must reset.")]
+    OracleCircuitBreakerTripped,
+
+    /// 6047 - Asset is currently paused
+    #[msg("Asset is currently paused")]
+    AssetPaused,
 }

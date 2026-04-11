@@ -8,6 +8,11 @@ const complianceIdentitySchema = new mongoose.Schema(
       unique: true,
       index: true,
     },
+    role: {
+      type: String,
+      enum: ["investor", "issuer", "admin", "auditor"],
+      default: "investor",
+    },
     complianceTier: {
       type: Number,
       enum: [0, 1, 2, 3, 4], // 0: Anon, 1: Basic, 2: Accredited, 3: Inst, 4: Sovereign

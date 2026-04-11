@@ -11,6 +11,7 @@ const Portfolio = require("../src/models/Portfolio");
 const Transaction = require("../src/models/Transaction");
 const LiquidityPool = require("../src/models/LiquidityPool");
 const OTCOrder = require("../src/models/OTCOrder");
+const GovernanceProposal = require("../src/models/GovernanceProposal");
 const liquidityService = require("../src/services/liquidityService");
 
 const MONGODB_URI =
@@ -698,6 +699,7 @@ async function seed() {
     await Transaction.deleteMany({});
     await LiquidityPool.deleteMany({});
     await OTCOrder.deleteMany({});
+    await GovernanceProposal.deleteMany({});
 
     // Clear community collections if they exist
     try {
@@ -865,6 +867,67 @@ async function seed() {
     }
     console.log(`✅ Seeded ${otcAssets.length * 2} OTC limit orders`);
 
+    // ─── Seed Governance Proposals ────────────────────────────────
+    const governanceProposals = [
+      {
+        assetId: assets[13]._id, // BKC Mumbai
+        proposer: sampleUsers[0].walletAddress,
+        proposalType: "rent_change",
+        title: "Renegotiate Lease Terms for Key Anchor Tenant",
+        description: "The primary anchor tenant's lease is up for renewal. We propose increasing the annual rent escalation from 5% to 7.5% due to rising demand for premium office space in the BKC micro-market. Yield projections show an increase of 45bps if this passes.",
+        descriptionHash: "0x123456789abcdef",
+        voteStart: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000), // Started 5 days ago
+        voteEnd: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000), // Ends in 2 days
+        quorumBps: 2500, // 25% quorum
+        votesFor: 85000,
+        votesAgainst: 12000,
+        votesAbstain: 5000,
+        voterCount: 42,
+        status: "active",
+        stakeAmount: 100000000,
+      },
+      {
+        assetId: assets[19]._id, // Solar Farm
+        proposer: sampleUsers[1].walletAddress,
+        proposalType: "renovation",
+        title: "Approve CapEx for Panel Upgrades (Phase 2)",
+        description: "Given the newly available high-efficiency monocrystalline panels, this proposal seeks approval to deploy $1.2M from the reserve fund to replace older tier-2 panels. Estimated IRR on this upgrade is 14%.",
+        descriptionHash: "0xabcdef123456789",
+        voteStart: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000), 
+        voteEnd: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000), 
+        quorumBps: 5100, 
+        votesFor: 120000,
+        votesAgainst: 45000,
+        votesAbstain: 10000,
+        voterCount: 95,
+        status: "passed",
+        executedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
+        executedBy: sampleUsers[0].walletAddress,
+        executionTxSignature: "4yZ4...8jK",
+        stakeAmount: 100000000,
+      },
+      {
+        assetId: assets[8]._id, // Burj Khalifa
+        proposer: sampleUsers[2].walletAddress,
+        proposalType: "general_vote",
+        title: "Change Property Management Agency",
+        description: "The current agency has raised fees by 15%. We have sourced competing bids from three other tier-1 luxury property management firms. This vote is to authorize the Asset Manager to transition services to 'Emaar Premium'.",
+        descriptionHash: "0x987654321fedcba",
+        voteStart: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
+        voteEnd: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000),
+        quorumBps: 3000,
+        votesFor: 25000,
+        votesAgainst: 8000,
+        votesAbstain: 2000,
+        voterCount: 18,
+        status: "active",
+        stakeAmount: 100000000,
+      }
+    ];
+    
+    const proposals = await GovernanceProposal.insertMany(governanceProposals);
+    console.log(`✅ Seeded ${proposals.length} governance proposals`);
+
     // Summary
     console.log(`
 ╔══════════════════════════════════════════════════════════════╗
@@ -875,6 +938,7 @@ async function seed() {
 ║  Transactions: ${String(demoTransactions.length).padEnd(44)}  ║
 ║  Posts:        ${String(posts.length).padEnd(44)}  ║
 ║  Reviews:      ${String(reviews.length).padEnd(44)}  ║
+║  Proposals:    ${String(proposals.length).padEnd(44)}  ║
 ╚══════════════════════════════════════════════════════════════╝
 `);
 

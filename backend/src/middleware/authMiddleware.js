@@ -1,9 +1,14 @@
 /**
  * Wallet Signature Authentication Middleware
  * Ensures the request is signed by the wallet owner.
+ *
+ * V2: DB-driven RBAC via RoleRegistry, requireRole factory,
+ *     and compliance identity integration.
  */
 const nacl = require("tweetnacl");
 const bs58 = require("bs58").default;
+const RoleRegistry = require("../models/RoleRegistry");
+const ComplianceIdentity = require("../models/ComplianceIdentity");
 
 const requireWalletSignature = (req, res, next) => {
   try {
@@ -45,19 +50,149 @@ const requireWalletSignature = (req, res, next) => {
 };
 
 /**
- * Require specific compliance tier or identity (Optional, but useful)
- * This could be a separate middleware or part of the auth flow depending on complexity.
+ * DB-driven role-based access control middleware factory
+ * Usage: router.post('/approve', requireWalletSignature, requireRole('admin', 'auditor'), handler)
+ *
+ * Looks up the user's role in the RoleRegistry collection.
+ * Falls back to env-based admin list for backwards compatibility.
+ */
+const requireRole = (...roles) => {
+  return async (req, res, next) => {
+    try {
+      const walletAddress = req.walletAddress;
+      if (!walletAddress) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+
+      // 1. Check RoleRegistry (primary)
+      const roleEntry = await RoleRegistry.findOne({
+        walletAddress,
+        isActive: true,
+      });
+
+      if (roleEntry && roles.includes(roleEntry.role)) {
+        req.userRole = roleEntry.role;
+        req.permissions = roleEntry.permissions;
+        return next();
+      }
+
+      // 2. Fallback: Check ComplianceIdentity (secondary)
+      const identity = await ComplianceIdentity.findOne({ walletAddress });
+      if (identity && identity.role && roles.includes(identity.role)) {
+        req.userRole = identity.role;
+        req.complianceTier = identity.complianceTier;
+        return next();
+      }
+
+      // 3. Legacy fallback: Hardcoded admin wallets from env
+      if (roles.includes("admin")) {
+        const ADMIN_WALLETS = process.env.ADMIN_WALLETS
+          ? process.env.ADMIN_WALLETS.split(",")
+          : [];
+        if (ADMIN_WALLETS.includes(walletAddress)) {
+          req.userRole = "admin";
+          return next();
+        }
+      }
+
+      return res.status(403).json({
+        error: `Access denied. Required role: ${roles.join(" or ")}`,
+      });
+    } catch (error) {
+      console.error("Role check error:", error);
+      res.status(500).json({ error: "Authorization check failed" });
+    }
+  };
+};
+
+/**
+ * Require specific granular permission
+ * Usage: router.post('/approve', requireWalletSignature, requirePermission('assets:approve'), handler)
+ */
+const requirePermission = (permission) => {
+  return async (req, res, next) => {
+    try {
+      const walletAddress = req.walletAddress;
+      if (!walletAddress) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+
+      const roleEntry = await RoleRegistry.findOne({
+        walletAddress,
+        isActive: true,
+      });
+
+      // Admins have all permissions
+      if (roleEntry && roleEntry.role === "admin") {
+        req.userRole = "admin";
+        return next();
+      }
+
+      // Check specific permission
+      if (roleEntry && roleEntry.permissions.includes(permission)) {
+        req.userRole = roleEntry.role;
+        return next();
+      }
+
+      return res.status(403).json({
+        error: `Missing permission: ${permission}`,
+      });
+    } catch (error) {
+      console.error("Permission check error:", error);
+      res.status(500).json({ error: "Authorization check failed" });
+    }
+  };
+};
+
+/**
+ * Require compliance tier (minimum tier level)
+ * Usage: router.post('/buy', requireWalletSignature, requireTier(2), handler)
+ */
+const requireTier = (minTier) => {
+  return async (req, res, next) => {
+    try {
+      const walletAddress = req.walletAddress;
+      if (!walletAddress) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+
+      const identity = await ComplianceIdentity.findOne({ walletAddress });
+
+      if (!identity) {
+        return res.status(403).json({
+          error: "No compliance identity found. Complete KYC first.",
+        });
+      }
+
+      if (identity.isFrozen) {
+        return res.status(403).json({
+          error: "Account is frozen. Contact compliance team.",
+        });
+      }
+
+      if (identity.complianceTier < minTier) {
+        return res.status(403).json({
+          error: `Minimum compliance tier ${minTier} required. Current: ${identity.complianceTier}`,
+        });
+      }
+
+      req.complianceTier = identity.complianceTier;
+      req.jurisdiction = identity.jurisdiction;
+      next();
+    } catch (error) {
+      console.error("Tier check error:", error);
+      res.status(500).json({ error: "Compliance check failed" });
+    }
+  };
+};
+
+/**
+ * Simple admin check (backwards-compatible)
  */
 const requireAdminWallet = (req, res, next) => {
-  // Simple admin check: Ensure the authenticated wallet is in a hardcoded list of admins
-  // In production, this would grab the user's role from the DB.
-  
-  // For MVP, if it made it past the signature check, it's authenticated.
-  // We can inject a hardcoded list of admin pubkeys:
-  
-  const ADMIN_WALLETS = process.env.ADMIN_WALLETS 
-     ? process.env.ADMIN_WALLETS.split(",") 
-     : ["DemoWa11etXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX", "TusharWalletAddressHere"]; // Fallback or read from env
+  const ADMIN_WALLETS = process.env.ADMIN_WALLETS
+     ? process.env.ADMIN_WALLETS.split(",")
+     : ["DemoWa11etXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX", "TusharWalletAddressHere"];
 
   if (ADMIN_WALLETS.includes(req.walletAddress)) {
      next();
@@ -69,4 +204,7 @@ const requireAdminWallet = (req, res, next) => {
 module.exports = {
   requireWalletSignature,
   requireAdminWallet,
+  requireRole,
+  requirePermission,
+  requireTier,
 };

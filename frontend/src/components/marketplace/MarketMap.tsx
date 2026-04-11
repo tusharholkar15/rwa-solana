@@ -27,13 +27,15 @@ const CITY_COORDS: Record<string, { x: number, y: number }> = {
 export default function MarketMap({ assets }: MarketMapProps) {
   const [hoveredAsset, setHoveredAsset] = useState<any | null>(null);
 
-  // Group assets by city for the map pins
-  const cityGroups = assets.reduce((acc: any, asset) => {
-    const city = asset.location?.city || 'Unknown';
-    if (!acc[city]) acc[city] = [];
-    acc[city].push(asset);
-    return acc;
-  }, {});
+  // Group assets by city for the map pins - memoized to prevent lag during hover state changes
+  const cityGroups = React.useMemo(() => {
+    return assets.reduce((acc: any, asset) => {
+      const city = asset.location?.city || 'Unknown';
+      if (!acc[city]) acc[city] = [];
+      acc[city].push(asset);
+      return acc;
+    }, {});
+  }, [assets]);
 
   return (
     <div className="relative w-full aspect-[21/9] institutional-glass bg-surface-900 overflow-hidden border-white/5">

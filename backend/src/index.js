@@ -20,7 +20,13 @@ const creditRoutes = require("./routes/credit");
 const analyticsRoutes = require("./routes/analytics");
 const communityRoutes = require("./routes/community");
 const oracleRoutes = require("./routes/oracle");
+const verificationRoutes = require("./routes/verification");
+const governanceRoutes = require("./routes/governance");
+const lifecycleRoutes = require("./routes/lifecycle");
 const oracleService = require("./services/oracleService");
+const rentRoutes = require("./routes/rent");
+const auditRoutes = require("./routes/audit");
+const darkpoolRoutes = require("./routes/darkpool");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -67,6 +73,12 @@ app.use("/api/credit", creditRoutes);
 app.use("/api/analytics", analyticsRoutes);
 app.use("/api/community", communityRoutes);
 app.use("/api/oracle", oracleRoutes);
+app.use("/api/verification", verificationRoutes);
+app.use("/api/governance", governanceRoutes);
+app.use("/api/lifecycle", lifecycleRoutes);
+app.use("/api/rent", rentRoutes);
+app.use("/api/audit", auditRoutes);
+app.use("/api/darkpool", darkpoolRoutes);
 
 // ─── Health Check ────────────────────────────────────────────────────
 app.get("/api/health", (req, res) => {
@@ -96,10 +108,17 @@ app.use((err, req, res, next) => {
 });
 
 // ─── Start Server ────────────────────────────────────────────────────
+const http = require("http");
+const realtimeService = require("./services/realtimeService");
+
 async function startServer() {
   try {
     await connectDatabase();
-    app.listen(PORT, () => {
+    
+    const server = http.createServer(app);
+    realtimeService.init(server);
+
+    server.listen(PORT, () => {
       console.log(`
 ╔══════════════════════════════════════════════════════╗
 ║     🏗️  RWA Tokenization Platform - Backend API     ║
@@ -107,6 +126,7 @@ async function startServer() {
 ║  Server:   http://localhost:${PORT}                    ║
 ║  Network:  ${(process.env.SOLANA_NETWORK || "devnet").padEnd(40)}║
 ║  MongoDB:  Connected                                ║
+║  Websocket:Ready ✅                                  ║
 ║  Status:   Ready ✅                                  ║
 ╚══════════════════════════════════════════════════════╝
       `);

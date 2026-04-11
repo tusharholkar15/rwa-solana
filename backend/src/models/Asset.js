@@ -140,6 +140,38 @@ const assetSchema = new mongoose.Schema(
       default: true,
     },
 
+    // ═══════════════════════════════════════════════════════
+    // V2 Institutional Fields
+    // ═══════════════════════════════════════════════════════
+    lifecycleStatus: {
+      type: String,
+      enum: ["pending", "under_review", "verified", "tokenized", "active", "paused", "sold"],
+      default: "pending",
+    },
+    verificationData: {
+      verifier: String,
+      fraudScore: Number,
+      documentHashes: [{
+        name: String,
+        hash: String,
+        ipfsUri: String,
+        verifiedAt: Date,
+      }],
+      legalOpinionHash: String,
+      approvedAt: Date,
+      rejectionReason: String,
+    },
+    propertyHealth: {
+      occupancyRate: { type: Number, min: 0, max: 100, default: 0 },
+      lastInspectionAt: Date,
+      rentCollectedYTD: { type: Number, default: 0 },
+      maintenanceCostYTD: { type: Number, default: 0 },
+    },
+    complianceRules: {
+      minComplianceTier: { type: Number, default: 1 },
+      allowedJurisdictions: { type: [String], default: ["GLOBAL"] },
+    },
+
     // Authority
     authority: {
       type: String,

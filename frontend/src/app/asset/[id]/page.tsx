@@ -236,6 +236,13 @@ export default function AssetDetailPage() {
                     </div>
                  </div>
                  <div className="flex gap-4">
+                    <Link 
+                       href={`/asset/${id}/health`}
+                       className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20 text-[10px] font-black uppercase tracking-widest transition-all shadow-lg shadow-emerald-500/5"
+                    >
+                       <Heart size={16} />
+                       Property Health
+                    </Link>
                     <button className="p-3 rounded-xl bg-white/5 border border-white/10 text-white/60 hover:text-white transition-all">
                        <Globe size={20} />
                     </button>

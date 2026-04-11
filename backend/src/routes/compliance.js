@@ -5,7 +5,8 @@ const express = require("express");
 const router = express.Router();
 const complianceService = require("../services/complianceService");
 const auditService = require("../services/auditService");
-const { requireWalletSignature, requireAdminWallet } = require("../middleware/authMiddleware");
+const { requireWalletSignature, requireRole, requirePermission } = require("../middleware/authMiddleware");
+const RoleRegistry = require("../models/RoleRegistry");
 
 /**
  * POST /api/compliance/verify-document
@@ -170,7 +171,7 @@ router.get("/identity/:wallet", async (req, res) => {
  * PUT /api/compliance/identity/:wallet/tier
  * Admin: Update identity tier
  */
-router.put("/identity/:wallet/tier", requireWalletSignature, requireAdminWallet, async (req, res) => {
+router.put("/identity/:wallet/tier", requireWalletSignature, requireRole("admin", "compliance_officer"), async (req, res) => {
   try {
     const { tier } = req.body;
     if (tier === undefined) return res.status(400).json({ error: "tier is required" });
@@ -189,7 +190,7 @@ router.put("/identity/:wallet/tier", requireWalletSignature, requireAdminWallet,
  * POST /api/compliance/identity/:wallet/freeze
  * Admin: Freeze wallet
  */
-router.post("/identity/:wallet/freeze", requireWalletSignature, requireAdminWallet, async (req, res) => {
+router.post("/identity/:wallet/freeze", requireWalletSignature, requireRole("admin", "compliance_officer"), async (req, res) => {
   try {
     const { reason } = req.body;
     const identity = await complianceService.freezeWallet({
@@ -207,7 +208,7 @@ router.post("/identity/:wallet/freeze", requireWalletSignature, requireAdminWall
  * POST /api/compliance/identity/:wallet/unfreeze
  * Admin: Unfreeze wallet
  */
-router.post("/identity/:wallet/unfreeze", requireWalletSignature, requireAdminWallet, async (req, res) => {
+router.post("/identity/:wallet/unfreeze", requireWalletSignature, requireRole("admin", "compliance_officer"), async (req, res) => {
   try {
     const identity = await complianceService.unfreezeWallet({
       walletAddress: req.params.wallet,
@@ -223,7 +224,7 @@ router.post("/identity/:wallet/unfreeze", requireWalletSignature, requireAdminWa
  * GET /api/compliance/identities
  * Admin: List all identities
  */
-router.get("/identities", requireWalletSignature, requireAdminWallet, async (req, res) => {
+router.get("/identities", requireWalletSignature, requireRole("admin", "auditor", "compliance_officer"), async (req, res) => {
   try {
     const { tier, jurisdiction, isFrozen, skip, limit } = req.query;
     const filters = {};
@@ -267,7 +268,7 @@ router.post("/validate-transfer", async (req, res) => {
  * GET /api/compliance/audit-trail
  * Admin: Query audit events
  */
-router.get("/audit-trail", requireWalletSignature, requireAdminWallet, async (req, res) => {
+router.get("/audit-trail", requireWalletSignature, requireRole("admin", "auditor", "compliance_officer"), async (req, res) => {
   try {
     const { walletAddress, eventType, startDate, endDate, skip, limit } = req.query;
     const filters = {};
@@ -345,6 +346,33 @@ router.get("/jurisdictions", (req, res) => {
       { code: "GLOBAL", name: "Global (Reg S)", requiresAccredited: false },
     ],
   });
+});
+
+/**
+ * POST /api/compliance/roles
+ * Admin: Assign RBAC Role to a wallet
+ */
+router.post("/roles", requireWalletSignature, requireRole("admin"), async (req, res) => {
+  try {
+    const { walletAddress, role, permissions } = req.body;
+    let entry = await RoleRegistry.findOne({ walletAddress });
+    if (!entry) {
+      entry = new RoleRegistry({ walletAddress, assignedBy: req.walletAddress });
+    }
+    entry.role = role;
+    if (permissions) entry.permissions = permissions;
+    await entry.save();
+    
+    await auditService.logEvent({
+      eventType: "rbac_role_assigned",
+      walletAddress: req.walletAddress,
+      details: { targetWallet: walletAddress, newRole: role }
+    });
+
+    res.json(entry);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 module.exports = router;

@@ -5,6 +5,7 @@
 
 const { v4: uuidv4 } = require("uuid");
 const ComplianceIdentity = require("../models/ComplianceIdentity");
+const Agreement = require("../models/Agreement");
 const auditService = require("./auditService");
 
 // Simulated watchlist for AML screening
@@ -25,10 +26,6 @@ const DOCUMENT_TYPES = {
 };
 
 class ComplianceService {
-  constructor() {
-    this.agreements = new Map(); // In-memory store for dev; MongoDB in production
-  }
-
   /**
    * Verify a submitted document
    */
@@ -73,7 +70,7 @@ class ComplianceService {
   async generateAgreement({ walletAddress, assetId, assetName, shares, pricePerToken, totalAmount }) {
     const agreementId = `agr_${uuidv4().slice(0, 12)}`;
 
-    const agreement = {
+    const agreement = new Agreement({
       agreementId,
       type: "investment_subscription",
       version: "2.0",
@@ -98,11 +95,11 @@ class ComplianceService {
         "Insurance coverage may not protect against all loss scenarios",
       ],
       status: "pending_signature",
-      generatedAt: new Date().toISOString(),
-      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(), // 7 days to sign
-    };
+      generatedAt: new Date(),
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days to sign
+    });
 
-    this.agreements.set(agreementId, agreement);
+    await agreement.save();
     return agreement;
   }
 
@@ -110,10 +107,13 @@ class ComplianceService {
    * Sign a digital agreement
    */
   async signAgreement({ agreementId, walletAddress, signatureHash }) {
-    const agreement = this.agreements.get(agreementId);
+    const agreement = await Agreement.findOne({ agreementId });
     
     if (!agreement) {
-      throw new Error("Agreement not found or expired");
+      throw new Error("Agreement not found");
+    }
+    if (new Date() > agreement.expiresAt) {
+      throw new Error("Agreement expired");
     }
     if (agreement.walletAddress !== walletAddress) {
       throw new Error("Wallet address mismatch");
@@ -123,11 +123,18 @@ class ComplianceService {
     }
 
     agreement.status = "signed";
-    agreement.signedAt = new Date().toISOString();
+    agreement.signedAt = new Date();
     agreement.signatureHash = signatureHash || `sig_${uuidv4()}`;
     agreement.signatureMethod = signatureHash ? "wallet_signature" : "platform_signature";
 
-    this.agreements.set(agreementId, agreement);
+    await agreement.save();
+
+    await auditService.logEvent({
+      eventType: "agreement_signed",
+      walletAddress,
+      details: { agreementId, assetId: agreement.assetId },
+    });
+
     return agreement;
   }
 
@@ -156,14 +163,8 @@ class ComplianceService {
   /**
    * Get user's agreements
    */
-  getAgreementsByWallet(walletAddress) {
-    const results = [];
-    for (const agreement of this.agreements.values()) {
-      if (agreement.walletAddress === walletAddress) {
-        results.push(agreement);
-      }
-    }
-    return results.sort((a, b) => new Date(b.generatedAt) - new Date(a.generatedAt));
+  async getAgreementsByWallet(walletAddress) {
+    return await Agreement.find({ walletAddress }).sort({ generatedAt: -1 });
   }
 
   /**

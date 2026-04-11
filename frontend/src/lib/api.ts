@@ -227,16 +227,12 @@ class ApiClient {
     return this.request<any>('/compliance/aml-screen', { method: 'POST', body: JSON.stringify({ walletAddress }) });
   }
 
-
-
   // --- Oracle Feed ---
-
   async getNavHistory(assetId: string, days?: number) {
     return this.request<{ history: any[] }>(`/oracle/history/${assetId}${days ? `?days=${days}` : ''}`);
   }
 
   // --- Compliance V2 (Institutional) ---
-
   async createComplianceIdentity(data: { walletAddress: string; tier: number; jurisdiction: string; accreditationType?: string }) {
     return this.request<any>('/compliance/identity', { method: 'POST', body: JSON.stringify(data) });
   }
@@ -252,8 +248,6 @@ class ApiClient {
   async validateTransfer(data: { fromWallet: string; toWallet: string; assetId: string; amount: number }) {
     return this.request<any>('/compliance/validate-transfer', { method: 'POST', body: JSON.stringify(data) });
   }
-
-  // Admin Compliance endpoints - Require headers: {'x-wallet-address', 'x-wallet-signature', 'x-wallet-message'} passed from UI
 
   async listComplianceIdentities(params: { tier?: string; jurisdiction?: string; isFrozen?: string }, authHeaders: Record<string, string>) {
     const searchParams = new URLSearchParams();
@@ -280,7 +274,6 @@ class ApiClient {
   }
 
   // --- Sub-Accounts (Institutional Delegation) ---
-
   async linkSubAccount(data: { childWallet: string }, authHeaders: Record<string, string>) {
     return this.request<any>('/compliance/link-subaccount', { method: 'POST', body: JSON.stringify(data), headers: authHeaders });
   }
@@ -324,7 +317,6 @@ class ApiClient {
   }
 
   // --- Dark Pool (Institutional) ---
-
   async placeDarkOrder(data: { walletAddress: string; assetId: string; side: string; price: number; shares: number; minimumFill?: number }) {
     return this.request<{ order: any }>('/liquidity/darkpool/order', { method: 'POST', body: JSON.stringify(data) });
   }
@@ -393,6 +385,370 @@ class ApiClient {
 
   async commentOnPost(postId: string, data: { walletAddress: string; authorName?: string; content: string }) {
     return this.request<any>(`/community/post/${postId}/comment`, { method: 'POST', body: JSON.stringify(data) });
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // INSTITUTIONAL V2 — Governance, Verification, Lifecycle, Risk
+  // ═══════════════════════════════════════════════════════════
+
+  // ─── Governance DAO ────────────────────────────────────────
+  async getProposals(assetId?: string, status?: string, limit?: number) {
+    // If no assetId, fetch all proposals across all assets
+    const params = new URLSearchParams();
+    if (status) params.set('status', status);
+    if (limit) params.set('limit', String(limit));
+    const query = params.toString();
+    const endpoint = assetId
+      ? `/governance/proposals/${assetId}${query ? `?${query}` : ''}`
+      : `/governance/proposals/all${query ? `?${query}` : ''}`;
+    return this.request<{ count: number; proposals: any[] }>(endpoint);
+  }
+
+  async getProposal(id: string) {
+    return this.request<any>(`/governance/proposal/${id}`);
+  }
+
+  async createProposal(data: {
+    assetId: string;
+    proposer: string;
+    proposalType?: string;
+    title: string;
+    description: string;
+    votingPeriodDays?: number;
+    quorumBps?: number;
+  }) {
+    return this.request<{ message: string; proposal: any }>('/governance/proposals', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async castVote(data: {
+    proposalId: string;
+    voter: string;
+    choice: 'for' | 'against' | 'abstain';
+    weight?: number;
+    txSignature?: string;
+  }) {
+    return this.request<{ message: string; proposalId: string; choice: string; weight: number }>(
+      '/governance/vote',
+      { method: 'POST', body: JSON.stringify(data) }
+    );
+  }
+
+  async getVoteBreakdown(proposalId: string) {
+    return this.request<any>(`/governance/votes/${proposalId}`);
+  }
+
+  async finalizeProposal(proposalId: string) {
+    return this.request<any>(`/governance/finalize/${proposalId}`, { method: 'POST' });
+  }
+
+  async executeProposal(proposalId: string, data: { executedBy: string; txSignature?: string }) {
+    return this.request<any>(`/governance/execute/${proposalId}`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  // ─── Asset Verification ───────────────────────────────────
+  async getVerificationQueue() {
+    return this.request<{ count: number; assets: any[] }>('/verification/queue');
+  }
+
+  async submitVerification(data: {
+    assetId: string;
+    documents: { name: string; hash: string; ipfsUri?: string }[];
+    walletAddress: string;
+  }) {
+    return this.request<any>('/verification/submit', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async approveAssetVerification(assetId: string, data: {
+    fraudScore?: number;
+    verifierWallet: string;
+    legalOpinionHash?: string;
+  }) {
+    return this.request<any>(`/verification/approve/${assetId}`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async rejectAssetVerification(assetId: string, data: {
+    reason: string;
+    verifierWallet: string;
+  }) {
+    return this.request<any>(`/verification/reject/${assetId}`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getVerificationHistory(assetId: string) {
+    return this.request<any>(`/verification/history/${assetId}`);
+  }
+
+  async transitionLifecycle(assetId: string, data: {
+    newStatus: string;
+    adminWallet: string;
+    reason?: string;
+  }) {
+    return this.request<any>(`/verification/lifecycle/${assetId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  // ─── Property Lifecycle & Health ──────────────────────────
+  async getPropertyDashboard(assetId: string) {
+    return this.request<any>(`/lifecycle/dashboard/${assetId}`);
+  }
+
+  async getPropertyEvents(assetId: string, params?: {
+    eventType?: string;
+    isVerified?: boolean;
+    limit?: number;
+  }) {
+    const searchParams = new URLSearchParams();
+    if (params) {
+      Object.entries(params).forEach(([key, value]) => {
+        if (value !== undefined) searchParams.set(key, String(value));
+      });
+    }
+    const query = searchParams.toString();
+    return this.request<{ events: any[]; total: number }>(
+      `/lifecycle/events/${assetId}${query ? `?${query}` : ''}`
+    );
+  }
+
+  async getRiskScore(assetId: string) {
+    return this.request<any>(`/lifecycle/risk/${assetId}`);
+  }
+
+  async getRiskHistory(assetId: string, days?: number) {
+    return this.request<any>(`/lifecycle/risk-history/${assetId}${days ? `?days=${days}` : ''}`);
+  }
+
+  async recordRent(data: {
+    assetId: string;
+    amount: number;
+    period: string;
+    paymentProof?: string;
+    reportedBy: string;
+  }) {
+    return this.request<any>('/lifecycle/rent', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async recordMaintenance(data: {
+    assetId: string;
+    amount: number;
+    description?: string;
+    category?: string;
+    reportedBy: string;
+  }) {
+    return this.request<any>('/lifecycle/maintenance', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateOccupancy(data: {
+    assetId: string;
+    rate: number;
+    evidenceUrl?: string;
+    reportedBy: string;
+  }) {
+    return this.request<any>('/lifecycle/occupancy', {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async recordInspection(data: {
+    assetId: string;
+    summary?: string;
+    reportHash?: string;
+    reportUrl?: string;
+    reportedBy: string;
+  }) {
+    return this.request<any>('/lifecycle/inspection', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  // ─── AMM Swap (New V2 Endpoint) ───────────────────────────
+  async ammSwap(data: {
+    assetId: string;
+    walletAddress: string;
+    swapDirection: 'SOL_TO_TOKEN' | 'TOKEN_TO_SOL';
+    amountIn: number;
+    minAmountOut: number;
+  }) {
+    return this.request<{ message: string; transaction: any }>('/amm/swap', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  // ─── Escrow (P2P OTC) ─────────────────────────────────────
+  async createEscrow(data: {
+    assetId: string;
+    sellerWallet: string;
+    buyerWallet: string;
+    shares: number;
+    solAmount: number;
+  }) {
+    return this.request<any>('/escrow/create', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  // ─── RBAC Role Management ─────────────────────────────────
+  async assignRole(data: {
+    walletAddress: string;
+    role: string;
+    permissions?: string[];
+  }, authHeaders: Record<string, string>) {
+    return this.request<any>('/compliance/roles', {
+      method: 'POST',
+      body: JSON.stringify(data),
+      headers: authHeaders,
+    });
+  }
+
+  // ─── Analytics ────────────────────────────────────────────
+  async getMarketAnalytics() {
+    return this.request<any>('/analytics/market');
+  }
+
+  async getHeatMap() {
+    return this.request<any>('/analytics/heat-map');
+  }
+
+  async getTopMovers() {
+    return this.request<any>('/analytics/top-movers');
+  }
+
+  // ─── Dark Pool ────────────────────────────────────────────
+  async getDarkPoolStats(assetId: string) {
+    return this.request<any>(`/darkpool/stats/${assetId}`);
+  }
+
+  async getMyDarkOrders(walletAddress: string) {
+    return this.request<any>(`/darkpool/orders/${walletAddress}`);
+  }
+
+  async placeDarkOrder(data: {
+    walletAddress: string;
+    assetId: string;
+    side: string;
+    price: number;
+    shares: number;
+    minimumFill?: number;
+  }) {
+    return this.request<any>('/darkpool/order', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // V3 — USDC Rent, Audit Export, Oracle Circuit Breaker, Delegation
+  // ═══════════════════════════════════════════════════════════
+
+  // ─── USDC Rent Collection ─────────────────────────────────
+  async collectRent(data: {
+    assetId: string;
+    amountUsdc: number;
+    memo?: string;
+    propertyManagerWallet: string;
+    txSignature?: string;
+  }) {
+    return this.request<any>('/rent/collect', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getRentHistory(assetId: string) {
+    return this.request<{ assetId: string; rentStats: any; history: any[] }>(`/rent/${assetId}/history`);
+  }
+
+  async getYieldSummary(assetId: string) {
+    return this.request<{
+      assetId: string;
+      assetName: string;
+      totalCollectedUsdc: number;
+      pendingDistributionUsdc: number;
+      annualizedYieldPercent: number;
+      lastCollectionAt: string;
+      monthlyHistory: any[];
+    }>(`/rent/yield-summary/${assetId}`);
+  }
+
+  async distributeYield(assetId: string, data: {
+    holderWallet: string;
+    sharesOwned: number;
+    totalShares: number;
+    txSignature?: string;
+  }) {
+    return this.request<any>(`/rent/distribute/${assetId}`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  // ─── Audit Trail (Regulator Export) ───────────────────────
+  async getAuditLogs(params?: {
+    walletAddress?: string;
+    eventType?: string;
+    startDate?: string;
+    endDate?: string;
+    regulatorFlag?: boolean;
+    page?: number;
+    limit?: number;
+  }) {
+    const searchParams = new URLSearchParams();
+    if (params) {
+      Object.entries(params).forEach(([key, value]) => {
+        if (value !== undefined) searchParams.set(key, String(value));
+      });
+    }
+    return this.request<{ total: number; events: any[] }>(`/audit/logs?${searchParams.toString()}`);
+  }
+
+  async getAuditStats() {
+    return this.request<{
+      total: number;
+      last24h: number;
+      last7d: number;
+      flagged: number;
+      topEventTypes: { type: string; count: number }[];
+    }>('/audit/stats');
+  }
+
+  async exportAuditLogs(format: 'csv' | 'json' = 'csv', startDate?: string, endDate?: string) {
+    const params = new URLSearchParams({ format });
+    if (startDate) params.set('startDate', startDate);
+    if (endDate) params.set('endDate', endDate);
+    // Direct fetch since this returns file, not JSON
+    const url = `${this.baseUrl}/audit/export?${params.toString()}`;
+    const res = await fetch(url);
+    return res.text();
+  }
+
+  // ─── Oracle Circuit Breaker ───────────────────────────────
+  async getOracleStatus(assetId: string) {
+    return this.request<any>(`/oracle/history/${assetId}?days=1`);
   }
 }
 

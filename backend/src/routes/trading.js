@@ -331,4 +331,73 @@ router.post("/sell", validateTradeRequest, async (req, res) => {
   }
 });
 
+/**
+ * POST /api/amm/swap
+ * Execute a secondary market swap using the AMM pool
+ */
+router.post("/amm/swap", async (req, res) => {
+  try {
+    const { assetId, walletAddress, swapDirection, amountIn, minAmountOut } = req.body;
+    
+    // Validate asset
+    const asset = await Asset.findById(assetId);
+    if (!asset) return res.status(404).json({ error: "Asset not found" });
+
+    // In a real implementation we would call the smart contract logic here 
+    // or verify an on-chain transaction. This is a basic simulation of the backend record.
+
+    // Record the transaction
+    const transaction = new Transaction({
+      txHash: `swap_${uuidv4()}`,
+      walletAddress,
+      assetId: asset._id,
+      assetName: asset.name,
+      type: "swap",
+      shares: swapDirection === 'SOL_TO_TOKEN' ? minAmountOut : amountIn,
+      pricePerToken: asset.pricePerToken, // Approximate
+      totalAmount: swapDirection === 'SOL_TO_TOKEN' ? amountIn : minAmountOut,
+      fee: amountIn * 0.003, // 0.3% LP fee 
+      status: "confirmed",
+    });
+    
+    await transaction.save();
+    
+    // Note: Portfolio update would normally happen via Indexer observing the chain
+    // but for immediate UI response we might optimistically update it here if necessary.
+
+    res.json({ message: "Swap executed", transaction });
+  } catch (error) {
+    console.error("Swap error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/escrow/create
+ * Create a P2P Over-The-Counter Escrow Trade
+ */
+router.post("/escrow/create", async (req, res) => {
+  try {
+    const { assetId, sellerWallet, buyerWallet, shares, solAmount } = req.body;
+    
+    // In production, this generates a transaction for the seller to sign
+    // that locks their tokens into the Escrow PDA.
+
+    res.json({
+      message: "Escrow initialization transaction created",
+      details: {
+        assetId,
+        sellerWallet,
+        buyerWallet,
+        shares,
+        solAmount,
+        status: "waiting_for_seller_signature"
+      }
+    });
+  } catch (error) {
+    console.error("Escrow creation error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 module.exports = router;

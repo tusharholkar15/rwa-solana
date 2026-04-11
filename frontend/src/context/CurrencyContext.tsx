@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState } from 'react';
+import React, { createContext, useContext, useState, useCallback } from 'react';
 
 export type CurrencyCode = 'USD' | 'INR' | 'EUR' | 'GBP' | 'JPY' | 'SGD' | 'AED' | 'SOL';
 
@@ -39,7 +39,7 @@ const CurrencyContext = createContext<CurrencyContextType | undefined>(undefined
 export function CurrencyProvider({ children }: { children: React.ReactNode }) {
   const [currency, setCurrency] = useState<CurrencyCode>('USD');
 
-  const formatPrice = (usdAmount: number): string => {
+  const formatPrice = useCallback((usdAmount: number): string => {
     const rate = EXCHANGE_RATES[currency];
     const amount = usdAmount * rate;
 
@@ -60,7 +60,7 @@ export function CurrencyProvider({ children }: { children: React.ReactNode }) {
         maximumFractionDigits: 2,
       })}`;
     }
-  };
+  }, [currency]);
 
   return (
     <CurrencyContext.Provider value={{

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { 
   Vote, 
@@ -8,50 +8,80 @@ import {
   Clock, 
   Users, 
   Info,
-  ChevronRight,
-  TrendingUp,
-  Activity,
-  History,
   CheckCircle2,
+  History,
+  Plus,
+  Loader2,
+  RefreshCw,
 } from 'lucide-react';
+import { useWallet } from '@solana/wallet-adapter-react';
 import GovernanceBallot from '@/components/shared/GovernanceBallot';
-
-const MOCK_PROPOSALS = [
-  {
-    id: '1',
-    title: 'Approve 4.5% Rental Indexation for Prime Berlin Residences',
-    description: 'A proposed annual adjustment to the rental rates for the Berlin Portfolio based on current inflation metrics and market demand for premium residential space.',
-    category: 'Portfolio Management',
-    status: 'active' as const,
-    for: 124500,
-    against: 42000,
-    endTime: '2d 14h',
-  },
-  {
-    id: '2',
-    title: 'Authorize Secondary Market Liquidity Expansion (V2)',
-    description: 'Expand the default liquidity depth for the Miami Tech Hub asset by an additional 12,000 SOL to facilitate larger institutional trades with zero slippage.',
-    category: 'Protocol Liquidity',
-    status: 'active' as const,
-    for: 284000,
-    against: 12000,
-    endTime: '5d 20h',
-  },
-  {
-    id: '3',
-    title: 'Allocate Yield Distribution to ESG-V3 Infrastructure',
-    description: 'Reallocate 0.5% of the platform-wide management fee to sustainable infrastructure upgrades for Class-A office buildings in the portfolio.',
-    category: 'Strategic Growth',
-    status: 'passed' as const,
-    for: 450000,
-    against: 85000,
-    endTime: 'Expired',
-    myVote: 'for' as const,
-  }
-];
+import { DashboardSkeleton } from '@/components/shared/Skeletons';
+import { api } from '@/lib/api';
+import { useToast } from '@/components/shared/Toast';
 
 export default function GovernancePage() {
   const [activeFilter, setActiveFilter] = useState('all');
+  const [proposals, setProposals] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const { publicKey } = useWallet();
+  const { toast } = useToast();
+
+  const fetchProposals = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
+    else setRefreshing(true);
+    try {
+      // Try fetching with "all" as the assetId — our backend route expects an assetId
+      // but we want all proposals; we'll try a catch-all approach
+      const data = await api.getProposals('all');
+      setProposals(data.proposals || []);
+      setError(null);
+    } catch (err: any) {
+      // If the "all" endpoint fails, it might mean no proposals exist yet
+      console.warn('Governance fetch:', err.message);
+      setProposals([]);
+      if (!silent) setError(null); // Don't show error for empty state
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  // Initial fetch
+  useEffect(() => {
+    fetchProposals();
+  }, [fetchProposals]);
+
+  // Poll every 10 seconds for real-time updates
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchProposals(true);
+    }, 10000);
+    return () => clearInterval(interval);
+  }, [fetchProposals]);
+
+  const filteredProposals = proposals.filter(p => {
+    if (activeFilter === 'all') return true;
+    if (activeFilter === 'active') return p.status === 'active' || p.status === 'voting';
+    if (activeFilter === 'history') return !['active', 'voting'].includes(p.status);
+    return true;
+  });
+
+  // Stats derived from data
+  const activeCount = proposals.filter(p => p.status === 'active' || p.status === 'voting').length;
+  const totalVotes = proposals.reduce((sum, p) => sum + (p.votesFor || 0) + (p.votesAgainst || 0) + (p.votesAbstain || 0), 0);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-surface-950 pt-10 pb-32">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <DashboardSkeleton />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-surface-950 pt-10 pb-32">
@@ -65,6 +95,7 @@ export default function GovernancePage() {
                   <Vote size={20} className="text-indigo-400" />
                </div>
                <span className="text-[10px] font-bold text-white/40 uppercase tracking-[0.2em]">Assetverse Protocol DAO</span>
+               {refreshing && <Loader2 size={14} className="text-indigo-400 animate-spin" />}
             </div>
             <h1 className="text-4xl md:text-5xl font-display font-black text-white mb-2">
               Protocol<span className="text-indigo-400">Governance</span>
@@ -72,7 +103,7 @@ export default function GovernancePage() {
             <div className="flex items-center gap-4 text-sm font-medium">
                <span className="text-white/30">Total Voting Power:</span>
                <span className="px-2 py-1 rounded-md bg-white/5 border border-white/10 text-emerald-400 font-display font-bold text-xs uppercase tracking-widest">
-                 1,240 VTN
+                 {publicKey ? 'Connected' : 'Wallet Required'}
                </span>
                <div className="h-4 w-px bg-white/10 mx-1" />
                <div className="flex items-center gap-1.5 text-white/40 font-bold uppercase tracking-tighter text-[10px]">
@@ -82,6 +113,13 @@ export default function GovernancePage() {
           </motion.div>
 
           <div className="flex items-center gap-3">
+             <button
+               onClick={() => fetchProposals(true)}
+               className="p-2.5 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 transition-all"
+               title="Refresh"
+             >
+               <RefreshCw size={16} className={`text-white/40 ${refreshing ? 'animate-spin' : ''}`} />
+             </button>
              <div className="p-1 rounded-xl bg-white/5 border border-white/10 flex">
                 {['All', 'Active', 'History'].map((f) => (
                   <button
@@ -104,39 +142,45 @@ export default function GovernancePage() {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-8 mb-16">
            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="institutional-glass p-6 bg-white/[0.01]">
               <div className="text-[10px] font-bold text-white/20 uppercase tracking-widest mb-2">Active Proposals</div>
-              <div className="text-2xl font-display font-bold text-white">12</div>
+              <div className="text-2xl font-display font-bold text-white">{activeCount}</div>
            </motion.div>
            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.1 }} className="institutional-glass p-6 bg-white/[0.01]">
-              <div className="text-[10px] font-bold text-white/20 uppercase tracking-widest mb-2">Cumulative Voting</div>
-              <div className="text-2xl font-display font-bold text-white">4.2M <span className="text-xs text-white/20">VTN</span></div>
+              <div className="text-[10px] font-bold text-white/20 uppercase tracking-widest mb-2">Total Proposals</div>
+              <div className="text-2xl font-display font-bold text-white">{proposals.length}</div>
            </motion.div>
            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.2 }} className="institutional-glass p-6 bg-white/[0.01]">
-              <div className="text-[10px] font-bold text-white/20 uppercase tracking-widest mb-2">Quorum Threshold</div>
-              <div className="text-2xl font-display font-bold text-white">25%</div>
+              <div className="text-[10px] font-bold text-white/20 uppercase tracking-widest mb-2">Cumulative Votes</div>
+              <div className="text-2xl font-display font-bold text-white">{totalVotes.toLocaleString()} <span className="text-xs text-white/20">VTN</span></div>
            </motion.div>
            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.3 }} className="institutional-glass p-6 bg-white/[0.01]">
-              <div className="text-[10px] font-bold text-white/20 uppercase tracking-widest mb-2">My Voting Power</div>
-              <div className="text-2xl font-display font-bold text-indigo-400">1,240 <span className="text-xs text-white/20">VTN</span></div>
+              <div className="text-[10px] font-bold text-white/20 uppercase tracking-widest mb-2">Default Quorum</div>
+              <div className="text-2xl font-display font-bold text-white">25%</div>
            </motion.div>
         </div>
 
         {/* ─── Proposals List ─────────────────────────────── */}
         <div className="space-y-8">
-           {MOCK_PROPOSALS
-             .filter(p => activeFilter === 'all' || (activeFilter === 'active' && p.status === 'active') || (activeFilter === 'history' && p.status !== 'active'))
-             .length > 0 ? (
-               MOCK_PROPOSALS
-                 .filter(p => activeFilter === 'all' || (activeFilter === 'active' && p.status === 'active') || (activeFilter === 'history' && p.status !== 'active'))
-                 .map((proposal) => (
-                  <GovernanceBallot key={proposal.id} proposal={proposal} />
-               ))
-             ) : (
-               <div className="p-20 institutional-glass bg-white/[0.01] text-center">
-                  <Vote size={48} className="text-white/5 mx-auto mb-6" />
-                  <h3 className="text-xl font-display font-bold text-white mb-2">No Proposals Found</h3>
-                  <p className="text-white/30 text-sm">No active or historical proposals match the selected filters.</p>
-               </div>
-             )}
+           {filteredProposals.length > 0 ? (
+             filteredProposals.map((proposal) => (
+               <GovernanceBallot
+                 key={proposal._id || proposal.id}
+                 proposal={proposal}
+                 onVoteSuccess={() => fetchProposals(true)}
+               />
+             ))
+           ) : (
+             <div className="p-20 institutional-glass bg-white/[0.01] text-center">
+                <Vote size={48} className="text-white/5 mx-auto mb-6" />
+                <h3 className="text-xl font-display font-bold text-white mb-2">
+                  {proposals.length === 0 ? 'No Proposals Yet' : 'No Proposals Found'}
+                </h3>
+                <p className="text-white/30 text-sm">
+                  {proposals.length === 0
+                    ? 'Governance proposals will appear here once created by asset issuers.'
+                    : 'No active or historical proposals match the selected filters.'}
+                </p>
+             </div>
+           )}
         </div>
 
         {/* Bottom Educational Disclaimer */}

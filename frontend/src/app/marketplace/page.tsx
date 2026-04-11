@@ -211,7 +211,7 @@ export default function MarketplacePage() {
 
         {/* ─── Institutional Activity Tape ────────────────── */}
         <div className="mb-10 overflow-hidden relative">
-          <div className="flex whitespace-nowrap animate-marquee-slower hover:pause pointer-events-auto">
+          <div className="flex whitespace-nowrap animate-marquee-slower hover:pause pointer-events-auto [will-change:transform]">
              {[...marketActivity, ...marketActivity].map((act, i) => (
                 <div key={i} className="flex items-center gap-3 px-8 text-[10px] font-bold tracking-widest uppercase">
                    <div className={`w-1.5 h-1.5 rounded-full ${act.type === 'MINT' ? 'bg-emerald-500' : act.type === 'SWAP' ? 'bg-indigo-500' : 'bg-amber-500'} shadow-[0_0_8px_currentColor]`} />
