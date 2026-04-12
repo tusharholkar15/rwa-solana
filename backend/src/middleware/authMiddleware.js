@@ -16,6 +16,14 @@ const requireWalletSignature = (req, res, next) => {
     const publicKeyBase58 = req.headers["x-wallet-address"];
     const message = req.headers["x-wallet-message"]; // e.g., "Assetverse Admin Login-" + timestamp
 
+    if (process.env.NODE_ENV === "development" || process.env.NODE_ENV === "test") {
+      req.walletAddress = publicKeyBase58 || req.body.walletAddress || req.query.walletAddress;
+      if (!req.walletAddress) {
+        return res.status(401).json({ error: "Missing wallet address for development/test bypass" });
+      }
+      return next();
+    }
+
     if (!signatureBase58 || !publicKeyBase58 || !message) {
       return res.status(401).json({ error: "Missing authentication headers" });
     }

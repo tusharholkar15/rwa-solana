@@ -9,11 +9,20 @@ interface SafeImageProps {
   alt: string;
   className?: string;
   assetType?: string;
+  loading?: "lazy" | "eager";
+  decoding?: "async" | "sync" | "auto";
 }
 
-export default function SafeImage({ src, alt, className = "", assetType = "Residential" }: SafeImageProps) {
+export default function SafeImage({ 
+  src, 
+  alt, 
+  className = "", 
+  assetType = "Residential",
+  loading,
+  decoding
+}: SafeImageProps) {
   const [error, setError] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [isImageLoading, setIsImageLoading] = useState(true);
 
   const getFallbackIcon = () => {
     const type = assetType.toLowerCase();
@@ -40,9 +49,11 @@ export default function SafeImage({ src, alt, className = "", assetType = "Resid
             key="image"
             src={src}
             alt={alt}
+            loading={loading}
+            decoding={decoding}
             initial={{ opacity: 0 }}
-            animate={{ opacity: loading ? 0 : 1 }}
-            onLoad={() => setLoading(false)}
+            animate={{ opacity: isImageLoading ? 0 : 1 }}
+            onLoad={() => setIsImageLoading(false)}
             onError={() => setError(true)}
             className="w-full h-full object-cover"
           />
@@ -68,7 +79,7 @@ export default function SafeImage({ src, alt, className = "", assetType = "Resid
       </AnimatePresence>
 
       {/* Loading Shimmer */}
-      {loading && !error && src && (
+      {isImageLoading && !error && src && (
         <div className="absolute inset-0 bg-white/5 animate-pulse" />
       )}
     </div>

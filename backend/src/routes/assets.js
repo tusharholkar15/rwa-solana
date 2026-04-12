@@ -7,10 +7,13 @@ const { requireAdmin } = require("../middleware/auth");
 const { paginationMeta } = require("../utils/helpers");
 const { isDatabaseConnected } = require("../config/database");
 const { getMockAssets, getMockAsset } = require("../utils/mockAssets");
+const { escapeRegex } = require("../middleware/sanitize");
+const redis = require("../config/redis");
 
 /**
  * GET /api/assets
  * List all active tokenized properties with filtering & pagination
+ * Cache-aside: 15s TTL, invalidated on create/delete
  */
 router.get("/", async (req, res) => {
   try {
@@ -26,15 +29,26 @@ router.get("/", async (req, res) => {
       maxPrice,
     } = req.query;
 
+    // Try cache first (skip if search/filter params make the key unique)
+    const cacheKey = `assets:list:${type || "all"}:${sortBy}:${page}:${limit}`;
+    if (!search && !minPrice && !maxPrice && !status) {
+      const cached = await redis.get(cacheKey);
+      if (cached) {
+        res.setHeader("X-Cache", "HIT");
+        return res.json(JSON.parse(cached));
+      }
+    }
+
     const filter = { isActive: true };
 
     if (type) filter.assetType = type;
     if (status) filter.status = status;
     if (search) {
+      const safeSearch = escapeRegex(search);
       filter.$or = [
-        { name: { $regex: search, $options: "i" } },
-        { description: { $regex: search, $options: "i" } },
-        { "location.city": { $regex: search, $options: "i" } },
+        { name: { $regex: safeSearch, $options: "i" } },
+        { description: { $regex: safeSearch, $options: "i" } },
+        { "location.city": { $regex: safeSearch, $options: "i" } },
       ];
     }
     if (minPrice) filter.pricePerToken = { ...filter.pricePerToken, $gte: Number(minPrice) };
@@ -75,11 +89,19 @@ router.get("/", async (req, res) => {
       return a;
     });
 
-    res.json({
+    const responseData = {
       assets: enrichedAssets,
       pagination: paginationMeta(total, Number(page), Number(limit)),
       solPrice: solPrice.price,
-    });
+    };
+
+    // Cache for 15 seconds (skip if filtered by search)
+    if (!search && !minPrice && !maxPrice && !status) {
+      await redis.set(cacheKey, JSON.stringify(responseData), "EX", 15);
+    }
+
+    res.setHeader("X-Cache", "MISS");
+    res.json(responseData);
   } catch (error) {
     console.error("Error fetching assets:", error);
     res.status(500).json({ error: "Failed to fetch assets" });
@@ -92,6 +114,13 @@ router.get("/", async (req, res) => {
  */
 router.get("/:id", async (req, res) => {
   try {
+    const cacheKey = `asset:${req.params.id}`;
+    const cached = await redis.get(cacheKey);
+    if (cached) {
+      res.setHeader("X-Cache", "HIT");
+      return res.json(JSON.parse(cached));
+    }
+
     // Check for database connection
     if (!isDatabaseConnected()) {
       const mockAsset = getMockAsset(req.params.id);
@@ -130,7 +159,11 @@ router.get("/:id", async (req, res) => {
       );
     }
 
-    res.json({ asset: assetObj, solPrice: solPrice.price });
+    const responseData = { asset: assetObj, solPrice: solPrice.price };
+    await redis.set(cacheKey, JSON.stringify(responseData), "EX", 30);
+
+    res.setHeader("X-Cache", "MISS");
+    res.json(responseData);
   } catch (error) {
     console.error("Error fetching asset:", error);
     res.status(500).json({ error: "Failed to fetch asset details" });
@@ -181,6 +214,12 @@ router.post("/", requireAdmin, validateAssetCreation, async (req, res) => {
     });
 
     await asset.save();
+
+    // Invalidate list caches
+    const keys = await redis.keys("assets:list:*");
+    if (keys.length > 0) {
+      await redis.del(...keys);
+    }
 
     res.status(201).json({
       message: "Asset created successfully",
@@ -239,6 +278,13 @@ router.delete("/:id", requireAdmin, async (req, res) => {
     asset.isActive = false;
     asset.status = "delisted";
     await asset.save();
+
+    // Invalidate relevant caches
+    const keys = await redis.keys("assets:list:*");
+    if (keys.length > 0) {
+      await redis.del(...keys);
+    }
+    await redis.del(`asset:${req.params.id}`);
 
     res.json({ message: "Asset delisted successfully" });
   } catch (error) {

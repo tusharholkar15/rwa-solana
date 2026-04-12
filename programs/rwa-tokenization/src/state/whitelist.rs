@@ -16,8 +16,11 @@ pub struct WhitelistEntry {
     /// Whether the user is currently verified
     pub is_verified: bool,
 
-    /// The authority who verified this user
+    /// The authority who verified this user (platform admin)
     pub verified_by: Pubkey,
+
+    /// The secondary compliance verifier who audited the KYC (e.g., law firm, KYC provider)
+    pub secondary_verified_by: Pubkey,
 
     /// Unix timestamp of verification
     pub verified_at: i64,

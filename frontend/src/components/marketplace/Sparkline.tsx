@@ -1,7 +1,6 @@
 'use client';
 
-import React, { useMemo, useId } from 'react';
-import { motion } from 'framer-motion';
+import React, { useMemo } from 'react';
 
 interface SparklineProps {
   data: number[];
@@ -10,85 +9,56 @@ interface SparklineProps {
   height?: number;
 }
 
+/**
+ * High-performance Sparkline: No animations, no gradients, exactly 30 points max.
+ */
 const Sparkline = React.memo(function Sparkline({ 
   data, 
   color = '#10b981', 
   width = 100, 
   height = 30 
 }: SparklineProps) {
-  const gradientId = useId();
-
-  const stats = useMemo(() => {
-    if (!data || data.length < 2) return null;
-    const min = Math.min(...data);
-    const max = Math.max(...data);
-    const range = max - min || 1;
-    return { min, max, range };
+  // 1. Efficient Downsampling (max 30 points)
+  const downsampledData = useMemo(() => {
+    if (!data || data.length === 0) return [];
+    if (data.length <= 30) return data;
+    
+    const result = [];
+    const step = (data.length - 1) / 29;
+    for (let i = 0; i < 30; i++) {
+      result.push(data[Math.round(i * step)]);
+    }
+    return result;
   }, [data]);
 
-  const pointsData = useMemo(() => {
-    if (!stats) return null;
-    const { min, range } = stats;
+  // 2. Memoized Path Generation
+  const path = useMemo(() => {
+    if (downsampledData.length < 2) return '';
     
-    const pointsList = data.map((val, i) => {
-      const x = (i / (data.length - 1)) * width;
+    const min = Math.min(...downsampledData);
+    const max = Math.max(...downsampledData);
+    const range = max - min || 1;
+    
+    return downsampledData.map((val, i) => {
+      const x = (i / (downsampledData.length - 1)) * width;
       const y = height - ((val - min) / range) * height;
-      return `${x},${y}`;
-    });
+      return `${i === 0 ? 'M' : 'L'} ${x.toFixed(1)} ${y.toFixed(1)}`;
+    }).join(' ');
+  }, [downsampledData, width, height]);
 
-    const pathPoints = pointsList.join(' ');
-    const lastPoint = {
-      x: width,
-      y: height - ((data[data.length - 1] - min) / range) * height
-    };
-
-    return { pathPoints, lastPoint };
-  }, [data, stats, width, height]);
-
-  if (!stats || !pointsData) return null;
+  if (!path) return <div style={{ width, height }} />;
 
   return (
-    <div className="relative group/spark" style={{ width, height }}>
-      <svg width={width} height={height} className="overflow-visible">
-        <defs>
-          <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={color} stopOpacity={0.2} />
-            <stop offset="100%" stopColor={color} stopOpacity={0} />
-          </linearGradient>
-        </defs>
-        
-        {/* Fill Area */}
-        <motion.path
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          d={`M 0,${height} L ${pointsData.pathPoints} L ${width},${height} Z`}
-          fill={`url(#${gradientId})`}
-          className="transition-opacity duration-500"
-        />
-
-        {/* Line */}
-        <motion.polyline
+    <div className="sparkline-container" style={{ width, height }}>
+      <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`}>
+        <path
           fill="none"
           stroke={color}
-          strokeWidth="2"
+          strokeWidth="1.5"
           strokeLinecap="round"
           strokeLinejoin="round"
-          points={pointsData.pathPoints}
-          initial={{ pathLength: 0 }}
-          animate={{ pathLength: 1 }}
-          transition={{ duration: 1.5, ease: "easeInOut" }}
-        />
-
-        {/* Last Point Indicator */}
-        <motion.circle
-          cx={pointsData.lastPoint.x}
-          cy={pointsData.lastPoint.y}
-          r="3"
-          fill={color}
-          initial={{ scale: 0 }}
-          animate={{ scale: 1 }}
-          transition={{ delay: 1.2 }}
-          className="shadow-[0_0_8px_rgba(16,185,129,1)]"
+          d={path}
+          style={{ vectorEffect: 'non-scaling-stroke' }}
         />
       </svg>
     </div>

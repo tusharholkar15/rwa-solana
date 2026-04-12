@@ -112,6 +112,14 @@ pub fn handler(ctx: Context<BuyShares>, amount: u64) -> Result<()> {
     ownership.last_transaction_at = clock.unix_timestamp;
     ownership.bump = ctx.bumps.user_ownership;
 
+    emit!(crate::AssetBought {
+        asset: asset.key(),
+        buyer: ctx.accounts.buyer.key(),
+        shares: amount,
+        total_cost,
+        timestamp: clock.unix_timestamp,
+    });
+
     msg!(
         "User {} bought {} shares of '{}' for {} lamports",
         ctx.accounts.buyer.key(),

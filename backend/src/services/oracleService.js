@@ -5,6 +5,8 @@
 
 const OracleFeed = require("../models/OracleFeed");
 const Asset = require("../models/Asset");
+const priceService = require("./priceService");
+const auditService = require("./auditService");
 
 class OracleService {
   constructor() {
@@ -22,14 +24,22 @@ class OracleService {
     
     this.heartbeatInterval = setInterval(async () => {
       try {
+        const solPriceData = await priceService.getSolPrice();
+        const liveSolPrice = solPriceData.price;
+        
         const assets = await Asset.find({ isActive: true });
         for (const asset of assets) {
           const baseNav = asset.navPrice || asset.pricePerToken;
           
-          // Simulate Pyth
-          const pythPrice = baseNav * (1 + (Math.random() * 0.004 - 0.002));
-          // Simulate Switchboard
-          const sbPrice = baseNav * (1 + (Math.random() * 0.005 - 0.0025));
+          // Use real SOL price to influence the asset's NAV based on its baseline
+          // In a complex system, we'd have unique feed IDs per asset.
+          // For the demo, we use SOL/USD as the reference market driver.
+          const marketSentiment = liveSolPrice / 145.0; // Assume 145 is baseline
+          
+          // Pyth (Live Anchor)
+          const pythPrice = baseNav * marketSentiment;
+          // Simulate Switchboard with a small randomized noise around Pyth (Demo limitation)
+          const sbPrice = pythPrice * (1 + (Math.random() * 0.002 - 0.001));
 
           // 1. Check spread threshold (Prevent manipulation)
           const spread = Math.abs(pythPrice - sbPrice) / baseNav;
@@ -41,6 +51,20 @@ class OracleService {
           if (spread > MAX_ALLOWED_SPREAD) {
             // Circuit Breaker: Spread too high, use TWAP fallback
             console.warn(`[OracleService] High spread detected for ${asset._id} (${(spread * 100).toFixed(2)}%). Falling back to TWAP.`);
+            
+            await auditService.logEvent({
+              eventType: "oracle_circuit_breaker",
+              walletAddress: "system",
+              details: {
+                assetId: asset._id,
+                reason: "HIGH_SPREAD",
+                spread: (spread * 100).toFixed(4) + "%",
+                pythPrice,
+                sbPrice
+              },
+              performedBy: "oracle_aggregator"
+            });
+
             finalPrice = await this.calculateTWAP(asset._id);
             activeProviders = ["TWAP_FALLBACK"];
           } else {
@@ -58,6 +82,20 @@ class OracleService {
             
             if (valid.length < 2) {
                console.warn(`[OracleService] Z-Score Anomaly: Rejecting divergent prices for ${asset._id}. Circuit breaker triggered.`);
+               
+               await auditService.logEvent({
+                 eventType: "oracle_circuit_breaker",
+                 walletAddress: "system",
+                 details: {
+                   assetId: asset._id,
+                   reason: "Z_SCORE_ANOMALY",
+                   prices: [pythPrice, sbPrice, twapPrice],
+                   mean,
+                   stddev
+                 },
+                 performedBy: "oracle_aggregator"
+               });
+
                finalPrice = twapPrice; // Fallback
                activeProviders = ["TWAP_FALLBACK", "CIRCUIT_BREAKER"];
             } else {

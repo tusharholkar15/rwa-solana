@@ -9,12 +9,15 @@ const Transaction = require('../models/Transaction');
 
 describe('Trading API Endpoints', () => {
     let testAsset;
-    const testWallet = 'trade-wallet-' + Date.now();
+    const testWallet = 'TestWa11etPubKeyXXXXXXXXXXXXXXX1'; // Valid 32-char length
 
     before(async () => {
         if (mongoose.connection.readyState === 0) {
             await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/rwa-solana-test');
         }
+
+        // Clean up any leaked data from previous runs
+        await User.deleteMany({ walletAddress: { $in: [testWallet, 'UnverifiedPubKeyXXXXXXXXXXXXXXX2'] } });
 
         // Setup: Approved user
         await User.create({
@@ -92,7 +95,7 @@ describe('Trading API Endpoints', () => {
     });
 
     it('POST /api/buy - should fail if KYC not approved', async () => {
-        const unverifiedWallet = 'unverified-' + Date.now();
+        const unverifiedWallet = 'UnverifiedPubKeyXXXXXXXXXXXXXXX2';
         await User.create({ walletAddress: unverifiedWallet, kycStatus: 'pending' });
 
         const res = await request(app)

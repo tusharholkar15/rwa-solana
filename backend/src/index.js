@@ -2,9 +2,12 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
-const morgan = require("morgan");
 const rateLimit = require("express-rate-limit");
-const { connectDatabase } = require("./config/database");
+const pino = require("pino-http")({ logger: require("./config/logger") });
+const { connectDatabase, isDatabaseConnected } = require("./config/database");
+const { sanitizeInputs } = require("./middleware/sanitize");
+const redis = require("./config/redis");
+const { Connection } = require("@solana/web3.js");
 
 const assetRoutes = require("./routes/assets");
 const tradingRoutes = require("./routes/trading");
@@ -32,7 +35,10 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 // ─── Security Middleware ─────────────────────────────────────────────
-app.use(helmet());
+app.use(helmet({
+  contentSecurityPolicy: { directives: { defaultSrc: ["'self'"] } },
+  hsts: { maxAge: 31536000, includeSubDomains: true, preload: true }
+}));
 app.use(
   cors({
     origin: process.env.FRONTEND_URL || "http://localhost:3000",
@@ -42,20 +48,29 @@ app.use(
 );
 
 // Rate limiting
-const limiter = rateLimit({
+const readLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Max 100 requests per window
-  message: { error: "Too many requests, please try again later." },
+  max: 200, 
+  message: { error: "Too many read requests, please try again later." },
 });
-app.use("/api/", limiter);
+const writeLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, 
+  message: { error: "Too many write requests, please try again later." },
+});
+app.use("/api/", (req, res, next) => {
+  if (req.method === "GET") return readLimiter(req, res, next);
+  return writeLimiter(req, res, next);
+});
 
 // ─── Body Parsing ────────────────────────────────────────────────────
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
+app.use(sanitizeInputs);
 
 // ─── Logging ─────────────────────────────────────────────────────────
 if (process.env.NODE_ENV !== "test") {
-  app.use(morgan("dev"));
+  app.use(pino);
 }
 
 // ─── API Routes ──────────────────────────────────────────────────────
@@ -81,12 +96,47 @@ app.use("/api/audit", auditRoutes);
 app.use("/api/darkpool", darkpoolRoutes);
 
 // ─── Health Check ────────────────────────────────────────────────────
-app.get("/api/health", (req, res) => {
+app.get("/api/health", async (req, res) => {
+  let redisStatus = "disconnected";
+  let solanaStatus = "disconnected";
+  let oracleStatus = "degraded";
+
+  try {
+    if (redis.status === "ready") redisStatus = "connected";
+  } catch (e) {
+    req.log.error("Redis health check failed", { error: e.message });
+  }
+
+  try {
+    const connection = new Connection(process.env.SOLANA_RPC_URL || "https://api.devnet.solana.com");
+    await connection.getSlot();
+    solanaStatus = "connected";
+  } catch (e) {
+    req.log.error("Solana health check failed", { error: e.message });
+  }
+
+  try {
+    const latestPrices = await oracleService.getLatestPrices?.() || {};
+    if (Object.keys(latestPrices).length > 0) oracleStatus = "operational";
+  } catch (e) {
+    req.log.error("Oracle health check failed", { error: e.message });
+  }
+
+  const dbConnected = isDatabaseConnected();
+  const isHealthy = dbConnected && redisStatus === "connected" && solanaStatus === "connected";
+
   res.json({
-    status: "healthy",
+    status: isHealthy ? "healthy" : "degraded",
+    uptime: process.uptime(),
+    services: {
+      database: dbConnected ? "connected" : "disconnected",
+      redis: redisStatus,
+      solana: solanaStatus,
+      oracle: oracleStatus,
+    },
     timestamp: new Date().toISOString(),
     network: process.env.SOLANA_NETWORK || "devnet",
-    version: "1.0.0",
+    version: "1.2.0-stable",
   });
 });
 
@@ -136,6 +186,28 @@ async function startServer() {
         oracleService.startHeartbeat(); // Starts simulated NAV fluctuations
       }
     });
+
+    // ─── Graceful Shutdown ─────────────────────────────────────────────
+    const shutdown = async (signal) => {
+      console.log(`\n[${signal}] Termination signal received. Closing institutional node...`);
+      server.close(async () => {
+        try {
+          // Close DB and Redis
+          const mongoose = require("mongoose");
+          await mongoose.connection.close();
+          await redis.quit();
+          console.log("Cleanup complete. Operational shutdown successful.");
+          process.exit(0);
+        } catch (err) {
+          console.error("Error during graceful shutdown:", err);
+          process.exit(1);
+        }
+      });
+    };
+
+    process.on("SIGTERM", () => shutdown("SIGTERM"));
+    process.on("SIGINT", () => shutdown("SIGINT"));
+
   } catch (error) {
     console.error("❌ Failed to start server:", error.message);
     process.exit(1);

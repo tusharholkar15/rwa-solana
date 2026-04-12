@@ -9,11 +9,22 @@ const BlockchainEvent = require("../models/BlockchainEvent");
 const Asset = require("../models/Asset");
 const realtimeService = require("./realtimeService");
 const Redis = require("ioredis");
+const anchor = require("@coral-xyz/anchor");
+const idl = require("../config/idl.json");
 
 class IndexerService {
   constructor() {
     this.redisClient = null;
     this.initRedis();
+
+    // Initialize Anchor EventParser for institutional telemetry
+    try {
+      const PROGRAM_ID = new anchor.web3.PublicKey(process.env.PROGRAM_ID || "RwaP111111111111111111111111111111111111111");
+      const coder = new anchor.BorshCoder(idl);
+      this.eventParser = new anchor.EventParser(PROGRAM_ID, coder);
+    } catch (e) {
+      console.warn("[Indexer] Failed to initialize Anchor EventParser:", e.message);
+    }
   }
 
   initRedis() {
@@ -77,16 +88,58 @@ class IndexerService {
       let assetId = null;
       let amount = 0;
       let isBroadcastable = false;
+      let parsedData = null;
       
-      // Extremely basic instruction parser mapping
-      const logString = tx.logs?.join(" ") || "";
-      if (logString.includes("Instruction: BuyShares")) { eventType = "mint"; isBroadcastable = true; }
-      if (logString.includes("Instruction: SwapTokens")) { eventType = "swap"; isBroadcastable = true; }
-      if (logString.includes("Instruction: CreateEscrow")) { eventType = "escrow_created"; isBroadcastable = true; }
-      if (logString.includes("Instruction: SettleEscrow")) { eventType = "escrow_settled"; isBroadcastable = true; }
-      if (logString.includes("Instruction: CastVote")) { eventType = "vote_cast"; isBroadcastable = true; }
-      if (logString.includes("Instruction: CollectRent")) { eventType = "rent_collected"; isBroadcastable = true; }
-      if (logString.includes("Instruction: UpdatePrice")) { eventType = "price_updated"; }
+      // Parse with Anchor EventParser for high-fidelity telemetry
+      if (this.eventParser && tx.logs && tx.logs.length > 0) {
+        for (let event of this.eventParser.parseLogs(tx.logs)) {
+          console.log(`[Indexer] Decoded Anchor Event: ${event.name}`);
+          parsedData = event.data;
+          
+          if (event.name === "AssetBought") {
+             eventType = "mint";
+             isBroadcastable = true;
+             assetId = event.data.asset.toString();
+             amount = event.data.shares.toNumber();
+          } else if (event.name === "AssetSold") {
+             eventType = "burn";
+             isBroadcastable = true;
+             assetId = event.data.asset.toString();
+             amount = event.data.shares.toNumber();
+          } else if (event.name === "PriceUpdated") {
+             eventType = "price_updated";
+             isBroadcastable = true; // Could update UI sparklines
+             assetId = event.data.asset.toString();
+          } else if (event.name === "OracleBreachDetected") {
+             eventType = "oracle_breach";
+             isBroadcastable = true;
+             assetId = event.data.asset.toString();
+             
+             // Immediate critical broadcast
+             if (realtimeService) {
+                realtimeService.publish('system_alerts', {
+                   level: event.data.isTripped ? 'CRITICAL' : 'WARNING',
+                   message: `Oracle Spread Breach Detected: ${event.data.spreadBps} bps diverge`,
+                   assetId,
+                   timestamp: new Date()
+                });
+             }
+          }
+          break; // Primary event handled
+        }
+      }
+
+      // Fallback instruction parser mapping for non-event legacy logs
+      if (eventType === "unknown") {
+        const logString = tx.logs?.join(" ") || "";
+        if (logString.includes("Instruction: BuyShares")) { eventType = "mint"; isBroadcastable = true; }
+        if (logString.includes("Instruction: SwapTokens")) { eventType = "swap"; isBroadcastable = true; }
+        if (logString.includes("Instruction: CreateEscrow")) { eventType = "escrow_created"; isBroadcastable = true; }
+        if (logString.includes("Instruction: SettleEscrow")) { eventType = "escrow_settled"; isBroadcastable = true; }
+        if (logString.includes("Instruction: CastVote")) { eventType = "vote_cast"; isBroadcastable = true; }
+        if (logString.includes("Instruction: CollectRent")) { eventType = "rent_collected"; isBroadcastable = true; }
+        if (logString.includes("Instruction: UpdatePrice")) { eventType = "price_updated"; }
+      }
 
       event = new BlockchainEvent({
         signature,
@@ -102,12 +155,15 @@ class IndexerService {
       console.log(`[Indexer] Synced tx: ${signature} (${eventType})`);
 
       // Broadcast event globally to UI using RealtimeService
-      if (isBroadcastable && realtimeService) {
+      if (isBroadcastable && realtimeService && eventType !== "oracle_breach") {
         realtimeService.publish('trade_events', {
            type: 'CHAIN_EVENT',
            signature,
            eventType,
-           timestamp: event.blockTime
+           assetId,
+           amount,
+           timestamp: event.blockTime,
+           decodedData: parsedData ? JSON.stringify(parsedData) : null
         });
       }
 

@@ -41,7 +41,7 @@ function ManagerContent({ assetId }: { assetId: string }) {
 
   useEffect(() => {
     if (!assetId) return;
-    api.getAssetDetails(assetId).then(setAsset).catch(console.error).finally(() => setLoading(false));
+    api.getAsset(assetId).then(data => setAsset(data.asset)).catch(console.error).finally(() => setLoading(false));
   }, [assetId]);
 
   const handleRentSubmit = async () => {

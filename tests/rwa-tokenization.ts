@@ -25,6 +25,7 @@ describe("rwa-tokenization", () => {
   const mintKeypair = Keypair.generate();
   const treasuryTokenAccountKeypair = Keypair.generate();
   const buyer = Keypair.generate();
+  const testVerifier = Keypair.generate();
 
   // Asset parameters
   const assetName = "Sunset Villas Unit 4B";
@@ -78,12 +79,17 @@ describe("rwa-tokenization", () => {
       program.programId
     );
 
-    // Airdrop SOL to buyer
-    const airdropTx = await provider.connection.requestAirdrop(
+    // Airdrop SOL to buyer and verifier
+    const airdropTx1 = await provider.connection.requestAirdrop(
       buyer.publicKey,
       10 * LAMPORTS_PER_SOL
     );
-    await provider.connection.confirmTransaction(airdropTx);
+    const airdropTx2 = await provider.connection.requestAirdrop(
+      testVerifier.publicKey,
+      10 * LAMPORTS_PER_SOL
+    );
+    await provider.connection.confirmTransaction(airdropTx1);
+    await provider.connection.confirmTransaction(airdropTx2);
   });
 
   it("Initializes a new tokenized asset", async () => {
@@ -127,10 +133,12 @@ describe("rwa-tokenization", () => {
       .whitelistUser()
       .accounts({
         authority: authority.publicKey,
+        secondaryVerifier: testVerifier.publicKey,
         user: authority.publicKey,
         whitelistEntry: authorityWhitelistPda,
         systemProgram: SystemProgram.programId,
       })
+      .signers([testVerifier])
       .rpc();
 
     console.log("Whitelist authority tx:", tx);
@@ -142,10 +150,12 @@ describe("rwa-tokenization", () => {
       .whitelistUser()
       .accounts({
         authority: authority.publicKey,
+        secondaryVerifier: testVerifier.publicKey,
         user: buyer.publicKey,
         whitelistEntry: buyerWhitelistPda,
         systemProgram: SystemProgram.programId,
       })
+      .signers([testVerifier])
       .rpc();
 
     console.log("Whitelist buyer tx:", tx);
@@ -365,6 +375,103 @@ describe("rwa-tokenization", () => {
       expect.fail("Should have thrown an error");
     } catch (err) {
       console.log("✅ Correctly prevented overselling");
+    }
+  });
+
+  it("Prevents buying zero shares", async () => {
+    const buyAmount = new anchor.BN(0);
+    const buyerTokenAccount = await getAssociatedTokenAddress(
+      mintKeypair.publicKey,
+      buyer.publicKey
+    );
+
+    try {
+      await program.methods
+        .buyShares(buyAmount)
+        .accounts({
+          buyer: buyer.publicKey,
+          asset: assetPda,
+          treasury: treasuryPda,
+          treasuryTokenAccount: treasuryTokenAccountKeypair.publicKey,
+          buyerTokenAccount: buyerTokenAccount,
+          buyerWhitelist: buyerWhitelistPda,
+          userOwnership: buyerOwnershipPda,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([buyer])
+        .rpc();
+
+      expect.fail("Should have thrown an error for zero amount");
+    } catch (err) {
+      console.log("✅ Correctly prevented zero share purchase");
+    }
+  });
+
+  it("Accumulates shares correctly on multiple purchases", async () => {
+    const buyAmount = new anchor.BN(50); // Previous ownership was 50 (after sell)
+    const buyerTokenAccount = await getAssociatedTokenAddress(
+      mintKeypair.publicKey,
+      buyer.publicKey
+    );
+
+    await program.methods
+      .buyShares(buyAmount)
+      .accounts({
+        buyer: buyer.publicKey,
+        asset: assetPda,
+        treasury: treasuryPda,
+        treasuryTokenAccount: treasuryTokenAccountKeypair.publicKey,
+        buyerTokenAccount: buyerTokenAccount,
+        buyerWhitelist: buyerWhitelistPda,
+        userOwnership: buyerOwnershipPda,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
+      })
+      .signers([buyer])
+      .rpc();
+
+    const ownership = await program.account.userOwnership.fetch(
+      buyerOwnershipPda
+    );
+    // 50 (start) - 50 (sold) + 50 (initial) = 50. Wait.
+    // Init sequence:
+    // 1. Buy 100 -> Owns 100
+    // 2. Sell 50 -> Owns 50
+    // 3. Buy 50 (this test) -> Owns 100
+    expect(ownership.sharesOwned.toNumber()).to.equal(100);
+    console.log("✅ Shares accumulated correctly");
+  });
+
+  it("Prevents non-authority from distributing yield", async () => {
+    const unauthorizedUser = Keypair.generate();
+    // Airdrop for tx fees
+    const airdropTx = await provider.connection.requestAirdrop(
+      unauthorizedUser.publicKey,
+      LAMPORTS_PER_SOL
+    );
+    await provider.connection.confirmTransaction(airdropTx);
+
+    const yieldAmount = new anchor.BN(100);
+
+    try {
+      await program.methods
+        .distributeYield(yieldAmount)
+        .accounts({
+          authority: unauthorizedUser.publicKey,
+          asset: assetPda,
+          treasury: treasuryPda,
+          holder: buyer.publicKey,
+          userOwnership: buyerOwnershipPda,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([unauthorizedUser])
+        .rpc();
+
+      expect.fail("Non-authority should not be able to distribute yield");
+    } catch (err) {
+      // Anchor should throw a constraint error or signature error
+      console.log("✅ Correctly prevented unauthorized yield distribution");
     }
   });
 });

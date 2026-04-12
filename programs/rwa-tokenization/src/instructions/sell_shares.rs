@@ -73,6 +73,14 @@ pub fn handler(ctx: Context<SellShares>, amount: u64) -> Result<()> {
         .ok_or(RwaError::ArithmeticOverflow)?;
     ownership.last_transaction_at = clock.unix_timestamp;
 
+    emit!(crate::AssetSold {
+        asset: asset.key(),
+        seller: ctx.accounts.seller.key(),
+        shares: amount,
+        total_proceeds: sale_proceeds,
+        timestamp: clock.unix_timestamp,
+    });
+
     msg!(
         "User {} sold {} shares of '{}' for {} lamports",
         ctx.accounts.seller.key(),

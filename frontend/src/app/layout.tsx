@@ -4,6 +4,7 @@ import { SolanaWalletProvider } from '@/components/wallet/WalletProvider';
 import { CurrencyProvider } from '@/context/CurrencyContext';
 import { ToastProvider } from '@/components/shared/Toast';
 import { RoleProvider } from '@/context/RoleContext';
+import { RealtimeProvider } from '@/context/RealtimeContext';
 import Navbar from '@/components/layout/Navbar';
 
 export const metadata: Metadata = {
@@ -22,7 +23,8 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <body className="min-h-screen bg-surface-950 font-sans antialiased text-white">
         <SolanaWalletProvider>
-          <CurrencyProvider>
+          <RealtimeProvider>
+            <CurrencyProvider>
             <RoleProvider>
               <ToastProvider>
                 <div className="min-h-screen relative overflow-x-hidden">
@@ -34,7 +36,8 @@ export default function RootLayout({
               </ToastProvider>
             </RoleProvider>
           </CurrencyProvider>
-        </SolanaWalletProvider>
+        </RealtimeProvider>
+      </SolanaWalletProvider>
       </body>
     </html>
   );

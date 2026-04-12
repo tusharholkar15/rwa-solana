@@ -248,3 +248,42 @@ pub mod rwa_tokenization {
         )
     }
 }
+
+// ═══════════════════════════════════════════════════════
+// ON-CHAIN EVENTS — Institutional Telemetry
+// ═══════════════════════════════════════════════════════
+
+#[event]
+pub struct AssetBought {
+    pub asset: Pubkey,
+    pub buyer: Pubkey,
+    pub shares: u64,
+    pub total_cost: u64,
+    pub timestamp: i64,
+}
+
+#[event]
+pub struct AssetSold {
+    pub asset: Pubkey,
+    pub seller: Pubkey,
+    pub shares: u64,
+    pub total_proceeds: u64,
+    pub timestamp: i64,
+}
+
+#[event]
+pub struct PriceUpdated {
+    pub asset: Pubkey,
+    pub price: u64,
+    pub oracle_source: u8,
+    pub timestamp: i64,
+}
+
+#[event]
+pub struct OracleBreachDetected {
+    pub asset: Pubkey,
+    pub spread_bps: u16,
+    pub consecutive_breaches: u8,
+    pub is_tripped: bool,
+    pub timestamp: i64,
+}

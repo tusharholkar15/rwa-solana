@@ -8,7 +8,7 @@ import { useWallet } from '@solana/wallet-adapter-react';
 import { useRole, UserRole } from '@/context/RoleContext';
 
 interface AuthGateProps {
-  children: React.ReactNode;
+  children?: React.ReactNode;
   allowedRoles?: UserRole[];
   title?: string;
   description?: string;

@@ -10,7 +10,7 @@ class AuditService {
   /**
    * Log a compliance event
    */
-  async logEvent({ eventType, walletAddress, targetWallet = null, details = {}, performedBy = "system" }) {
+  async logEvent({ eventType, walletAddress, targetWallet = null, details = {}, performedBy = "system" }, session = null) {
     try {
       const log = new AuditLog({
         eventType,
@@ -24,7 +24,7 @@ class AuditService {
         regulatorFlag: details.regulatorFlag || false
       });
 
-      await log.save();
+      await log.save({ session });
       return log;
     } catch (error) {
       console.error("Failed to append to audit log:", error);

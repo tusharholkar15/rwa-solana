@@ -11,14 +11,16 @@ pub fn handler(ctx: Context<WhitelistUser>) -> Result<()> {
     whitelist.user = ctx.accounts.user.key();
     whitelist.is_verified = true;
     whitelist.verified_by = ctx.accounts.authority.key();
+    whitelist.secondary_verified_by = ctx.accounts.secondary_verifier.key();
     whitelist.verified_at = clock.unix_timestamp;
     whitelist.expires_at = 0; // No expiry by default
     whitelist.bump = ctx.bumps.whitelist_entry;
 
     msg!(
-        "User {} has been whitelisted by {}",
+        "User {} has been whitelisted by {} and audited by {}",
         ctx.accounts.user.key(),
-        ctx.accounts.authority.key()
+        ctx.accounts.authority.key(),
+        ctx.accounts.secondary_verifier.key()
     );
 
     Ok(())
@@ -42,6 +44,9 @@ pub struct WhitelistUser<'info> {
     /// Admin authority performing KYC verification
     #[account(mut)]
     pub authority: Signer<'info>,
+
+    /// Secondary compliance verifier enforcing multi-sig KYC
+    pub secondary_verifier: Signer<'info>,
 
     /// The user being whitelisted
     /// CHECK: This is just the user's pubkey, no data read

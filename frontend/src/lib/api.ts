@@ -625,41 +625,6 @@ class ApiClient {
     });
   }
 
-  // ─── Analytics ────────────────────────────────────────────
-  async getMarketAnalytics() {
-    return this.request<any>('/analytics/market');
-  }
-
-  async getHeatMap() {
-    return this.request<any>('/analytics/heat-map');
-  }
-
-  async getTopMovers() {
-    return this.request<any>('/analytics/top-movers');
-  }
-
-  // ─── Dark Pool ────────────────────────────────────────────
-  async getDarkPoolStats(assetId: string) {
-    return this.request<any>(`/darkpool/stats/${assetId}`);
-  }
-
-  async getMyDarkOrders(walletAddress: string) {
-    return this.request<any>(`/darkpool/orders/${walletAddress}`);
-  }
-
-  async placeDarkOrder(data: {
-    walletAddress: string;
-    assetId: string;
-    side: string;
-    price: number;
-    shares: number;
-    minimumFill?: number;
-  }) {
-    return this.request<any>('/darkpool/order', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-  }
 
   // ═══════════════════════════════════════════════════════════
   // V3 — USDC Rent, Audit Export, Oracle Circuit Breaker, Delegation

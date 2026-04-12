@@ -3,12 +3,18 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Shield, Users, Building2, Activity, DollarSign, BarChart3,
-  Plus, Check, X, Clock, Globe, Server, Layers, Zap, ArrowRight,
+  Users, Building2, Activity, BarChart3,
+  Plus, Check, X, Clock, Zap,
   Database, ShieldCheck, FileSearch, UserCog, AlertTriangle,
-  CheckCircle2, XCircle, Loader2, RefreshCw,
+  CheckCircle2, Loader2, RefreshCw,
 } from 'lucide-react';
+import { useWallet } from '@solana/wallet-adapter-react';
 import AuthGate from '@/components/shared/AuthGate';
+import { useToast } from '@/components/shared/Toast';
+import ConfirmModal from '@/components/shared/ConfirmModal';
+import { DashboardSkeleton, SkeletonRow } from '@/components/shared/Skeletons';
+import { api } from '@/lib/api';
+import { ASSET_TYPES } from '@/lib/constants';
 
 type AdminTab = 'overview' | 'verification' | 'roles';
 

@@ -12,6 +12,7 @@ import {
   ChevronDown, TrendingUp, ArrowRight, Cpu, LogOut,
 } from 'lucide-react';
 import { useRole } from '@/context/RoleContext';
+import SystemStatusIndicator from '@/components/layout/SystemStatusIndicator';
 
 // ─── Navigation Structure ────────────────────────────────────────────────────
 const navGroups = [
@@ -290,23 +291,8 @@ export default function Navbar() {
 
           {/* ─── Right Actions ────────────────────────────────── */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
-            {/* Network Status */}
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: '6px',
-              padding: '6px 12px', borderRadius: '999px',
-              background: 'rgba(16,185,129,0.08)',
-              border: '1px solid rgba(16,185,129,0.15)',
-            }} className="network-status">
-              <div style={{
-                width: '6px', height: '6px', borderRadius: '50%',
-                background: '#10b981',
-                boxShadow: '0 0 6px #10b981',
-                animation: 'pulse 2s infinite',
-              }} />
-              <span style={{ fontSize: '10px', fontWeight: '700', color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', letterSpacing: '0.12em' }}>
-                Devnet
-              </span>
-            </div>
+            {/* Institutional System Status */}
+            <SystemStatusIndicator />
 
             <PremiumWalletButton />
 

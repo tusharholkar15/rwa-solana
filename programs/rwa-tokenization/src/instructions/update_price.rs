@@ -84,6 +84,15 @@ pub fn handler(
                 OracleCircuitBreaker::MAX_SPREAD_BPS,
                 breaker.consecutive_spread_breaches
             );
+
+            emit!(crate::OracleBreachDetected {
+                asset: asset.key(),
+                spread_bps,
+                consecutive_breaches: breaker.consecutive_spread_breaches,
+                is_tripped: true,
+                timestamp: clock.unix_timestamp,
+            });
+
             return Ok(()); // Return early — price NOT updated
         }
 
@@ -94,6 +103,14 @@ pub fn handler(
             asset.name,
             spread_bps
         );
+
+        emit!(crate::OracleBreachDetected {
+            asset: asset.key(),
+            spread_bps,
+            consecutive_breaches: breaker.consecutive_spread_breaches,
+            is_tripped: false,
+            timestamp: clock.unix_timestamp,
+        });
     }
 
     // ── Step 5: Compute Final Price ───────────────────────────
@@ -122,6 +139,13 @@ pub fn handler(
     // ── Step 7: Record Success in Circuit Breaker ─────────────
     let breaker = &mut ctx.accounts.circuit_breaker;
     breaker.record_success(final_price, clock.unix_timestamp);
+
+    emit!(crate::PriceUpdated {
+        asset: asset.key(),
+        price: final_price,
+        oracle_source,
+        timestamp: clock.unix_timestamp,
+    });
 
     msg!(
         "Price updated for '{}': {} lamports | Pyth: {} | Switchboard: {} | Spread: {}bps | Source: 0b{:04b}",

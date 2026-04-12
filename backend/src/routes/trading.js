@@ -6,37 +6,73 @@ const Transaction = require("../models/Transaction");
 const Portfolio = require("../models/Portfolio");
 const TaxLot = require("../models/TaxLot");
 const { validateTradeRequest } = require("../middleware/validation");
+const { requireWalletSignature } = require("../middleware/authMiddleware");
 const { v4: uuidv4 } = require("uuid");
 const transferAgentService = require("../services/transferAgentService");
+const auditService = require("../services/auditService");
+
+const mongoose = require("mongoose");
+const redis = require("../config/redis");
 
 /**
  * POST /api/buy
  * Execute a buy order for fractional shares
+ * Wrapped in MongoDB session for ACID compliance
  */
-router.post("/buy", validateTradeRequest, async (req, res) => {
+router.post("/buy", requireWalletSignature, validateTradeRequest, async (req, res) => {
+  let session = null;
+  if (process.env.NODE_ENV !== "development" && process.env.NODE_ENV !== "test") {
+    session = await mongoose.startSession();
+    session.startTransaction();
+  }
+
   try {
     const { assetId, shares, walletAddress } = req.body;
+    const cacheKey = `portfolio:${walletAddress}`;
 
-    // Validate asset
-    const asset = await Asset.findById(assetId);
+    // 1. Validate asset (with session)
+    const asset = await Asset.findById(assetId).session(session);
     if (!asset) {
+      if (session) {
+        await session.abortTransaction();
+      }
       return res.status(404).json({ error: "Asset not found" });
     }
+    
     if (!asset.isActive || asset.status !== "active") {
+      if (session) {
+        await session.abortTransaction();
+      }
       return res.status(400).json({ error: "Asset is not available for trading" });
     }
+
     if (asset.availableSupply < shares) {
+      if (session) {
+        await session.abortTransaction();
+      }
       return res.status(400).json({
         error: "Insufficient supply",
         available: asset.availableSupply,
-        requested: shares,
       });
     }
 
-    // Validate user KYC
-    let user = await User.findOne({ walletAddress });
+    // 2. Validate/Create user (with session)
+    let user = await User.findOne({ walletAddress }).session(session);
     
-    // Auto-approve in development mode if user doesn't exist or isn't approved
+    // Auto-approve in development for testing
+    if (process.env.NODE_ENV === "development" && user && user.kycStatus !== "approved") {
+      user.kycStatus = "approved";
+      user.isWhitelisted = true;
+      await user.save({ session });
+    }
+
+    if (!user || user.kycStatus !== "approved") {
+      if (session) {
+        await session.abortTransaction();
+      }
+      return res.status(403).json({ error: "KYC verification required" });
+    }
+    
     if (process.env.NODE_ENV === "development") {
       if (!user) {
         user = new User({
@@ -46,38 +82,30 @@ router.post("/buy", validateTradeRequest, async (req, res) => {
           kycStatus: "approved",
           isWhitelisted: true,
         });
-        await user.save();
-        console.log(`✅ Auto-created & Approved KYC for Dev User: ${walletAddress}`);
+        await user.save({ session });
       } else if (user.kycStatus !== "approved") {
         user.kycStatus = "approved";
         user.isWhitelisted = true;
-        await user.save();
-        console.log(`✅ Auto-approved KYC for Existing User: ${walletAddress}`);
+        await user.save({ session });
       }
     }
 
     if (!user || user.kycStatus !== "approved") {
-      return res.status(403).json({
-        error: "KYC verification required",
-        message: "Please complete KYC verification before trading",
-        kycStatus: user ? user.kycStatus : "none",
-      });
+      if (session) {
+        await session.abortTransaction();
+      }
+      return res.status(403).json({ error: "KYC verification required" });
     }
 
-    // Calculate costs
+    // 3. Update Financials
     const totalCost = shares * asset.pricePerToken;
-    const fee = Math.floor(totalCost * 0.001); // 0.1% platform fee
+    const fee = Math.floor(totalCost * 0.001);
 
-    // Update asset supply
     asset.availableSupply -= shares;
-    asset.totalInvestors = await Portfolio.countDocuments({
-      "holdings.assetId": asset._id,
-      "holdings.shares": { $gt: 0 },
-    });
-    await asset.save();
+    await asset.save({ session });
 
-    // Update portfolio
-    let portfolio = await Portfolio.findOne({ walletAddress });
+    // 4. Update Portfolio
+    let portfolio = await Portfolio.findOne({ walletAddress }).session(session);
     if (!portfolio) {
       portfolio = new Portfolio({
         walletAddress,
@@ -92,7 +120,6 @@ router.post("/buy", validateTradeRequest, async (req, res) => {
     );
 
     if (existingHolding) {
-      // Update weighted average price
       const existingValue = existingHolding.shares * existingHolding.avgBuyPrice;
       const newValue = shares * asset.pricePerToken;
       const totalShares = existingHolding.shares + shares;
@@ -116,9 +143,9 @@ router.post("/buy", validateTradeRequest, async (req, res) => {
       return total + h.shares * h.avgBuyPrice;
     }, 0);
 
-    await portfolio.save();
+    await portfolio.save({ session });
 
-    // Record transaction
+    // 5. Record Transaction & TaxLot
     const transaction = new Transaction({
       txHash: `sim_${uuidv4()}`,
       walletAddress,
@@ -131,9 +158,8 @@ router.post("/buy", validateTradeRequest, async (req, res) => {
       fee,
       status: "confirmed",
     });
-    await transaction.save();
+    await transaction.save({ session });
 
-    // Create Tax Lot for specific tracking
     const taxLot = new TaxLot({
       walletAddress,
       assetId,
@@ -143,41 +169,63 @@ router.post("/buy", validateTradeRequest, async (req, res) => {
       transactionId: transaction._id,
       purchaseDate: transaction.createdAt,
     });
-    await taxLot.save();
+    await taxLot.save({ session });
 
-
-    // Update user stats
     user.totalTransactions += 1;
     user.totalInvested += totalCost;
-    await user.save();
+    await user.save({ session });
 
-    // Trigger async Transfer Agent integration (Non-blocking)
+    // Institutional Audit Log (Atomic with Transaction)
+    await auditService.logEvent({
+      eventType: "trade_executed",
+      walletAddress,
+      details: {
+        assetId,
+        shares,
+        type: "buy",
+        totalCost,
+        txHash: transaction.txHash
+      },
+      performedBy: walletAddress
+    }, session);
+
+    // COMMIT ALL DB CHANGES
+    if (session) {
+      await session.commitTransaction();
+    }
+
+    // Invalidate Cache after Commit
+    await redis.del(cacheKey);
+    const keys = await redis.keys("assets:list:*");
+    if (keys.length > 0) {
+      await redis.del(...keys);
+    }
+
+    // Backend background sync (non-transactional)
     transferAgentService.syncTransfer(
       asset._id,
-      "ISSUER_TREASURY", // Simulated primary market seller
+      "ISSUER_TREASURY",
       walletAddress,
       shares
     ).catch(err => console.error("[Background] TA Sync Failed:", err.message));
 
     res.json({
       message: "Purchase successful",
-      transaction: {
-        id: transaction._id,
-        txHash: transaction.txHash,
-        shares,
-        pricePerToken: asset.pricePerToken,
-        totalCost,
-        fee,
-        asset: {
-          name: asset.name,
-          symbol: asset.symbol,
-          remainingSupply: asset.availableSupply,
-        },
-      },
+      transaction: { id: transaction._id, shares, totalCost },
     });
   } catch (error) {
-    console.error("Buy error:", error);
-    res.status(500).json({ error: "Failed to process purchase" });
+    if (session) {
+      await session.abortTransaction();
+    }
+    console.error("Buy Transaction Rolled Back:", error);
+    res.status(500).json({ 
+      error: "Transaction failed. Please try again.",
+      details: process.env.NODE_ENV === "development" ? error.message : undefined
+    });
+  } finally {
+    if (session) {
+      session.endSession();
+    }
   }
 });
 
@@ -185,33 +233,47 @@ router.post("/buy", validateTradeRequest, async (req, res) => {
  * POST /api/sell
  * Execute a sell order for fractional shares
  */
-router.post("/sell", validateTradeRequest, async (req, res) => {
+router.post("/sell", requireWalletSignature, validateTradeRequest, async (req, res) => {
+  let session = null;
+  if (process.env.NODE_ENV !== "development" && process.env.NODE_ENV !== "test") {
+    session = await mongoose.startSession();
+    session.startTransaction();
+  }
+
   try {
     const { assetId, shares, walletAddress } = req.body;
+    const cacheKey = `portfolio:${walletAddress}`;
 
-    // Validate asset
-    const asset = await Asset.findById(assetId);
+    // 1. Validate asset (with session)
+    const asset = await Asset.findById(assetId).session(session);
     if (!asset) {
+      if (session) {
+        await session.abortTransaction();
+      }
       return res.status(404).json({ error: "Asset not found" });
     }
 
-    // Validate user KYC
-    let user = await User.findOne({ walletAddress });
-
-    // Auto-approve in development mode (should already be handled by /buy, but for safety)
+    // 2. Validate user (with session)
+    let user = await User.findOne({ walletAddress }).session(session);
     if (process.env.NODE_ENV === "development" && user && user.kycStatus !== "approved") {
       user.kycStatus = "approved";
       user.isWhitelisted = true;
-      await user.save();
+      await user.save({ session });
     }
 
     if (!user || user.kycStatus !== "approved") {
+      if (session) {
+        await session.abortTransaction();
+      }
       return res.status(403).json({ error: "KYC verification required" });
     }
 
-    // Validate portfolio holdings
-    const portfolio = await Portfolio.findOne({ walletAddress });
+    // 3. Validate Portfolio & Holding (with session)
+    const portfolio = await Portfolio.findOne({ walletAddress }).session(session);
     if (!portfolio) {
+      if (session) {
+        await session.abortTransaction();
+      }
       return res.status(400).json({ error: "No portfolio found" });
     }
 
@@ -220,20 +282,22 @@ router.post("/sell", validateTradeRequest, async (req, res) => {
     );
 
     if (!holding || holding.shares < shares) {
+      if (session) {
+        await session.abortTransaction();
+      }
       return res.status(400).json({
         error: "Insufficient shares",
         owned: holding ? holding.shares : 0,
-        requested: shares,
       });
     }
 
-    // 4. Calculate P&L using FIFO Tax Lots
+    // 4. Calculate P&L using FIFO Tax Lots (with session)
     const activeLots = await TaxLot.find({
       walletAddress,
       assetId,
       status: "active",
       sharesRemaining: { $gt: 0 },
-    }).sort({ purchaseDate: 1 }); // FIFO: Oldest first
+    }).sort({ purchaseDate: 1 }).session(session); 
 
     let remainingToSell = shares;
     let totalCostBasisOfSoldShares = 0;
@@ -250,7 +314,7 @@ router.post("/sell", validateTradeRequest, async (req, res) => {
       if (lot.sharesRemaining === 0) {
         lot.status = "sold";
       }
-      await lot.save();
+      await lot.save({ session });
     }
 
     if (remainingToSell > 0) {
@@ -258,11 +322,13 @@ router.post("/sell", validateTradeRequest, async (req, res) => {
       totalCostBasisOfSoldShares += remainingToSell * holding.avgBuyPrice;
     }
 
+    const totalProceeds = shares * asset.pricePerToken;
+    const fee = Math.floor(totalProceeds * 0.001); 
     const realizedPnl = totalProceeds - totalCostBasisOfSoldShares;
 
-    // Update asset supply
+    // 5. Update asset supply (with session)
     asset.availableSupply += shares;
-    await asset.save();
+    await asset.save({ session });
 
     // Update portfolio
     holding.shares -= shares;
@@ -280,9 +346,9 @@ router.post("/sell", validateTradeRequest, async (req, res) => {
     }, 0);
     portfolio.totalRealizedPnl = (portfolio.totalRealizedPnl || 0) + realizedPnl;
 
-    await portfolio.save();
+    await portfolio.save({ session });
 
-    // Record transaction
+    // 6. Record Transaction & Invalidate Cache
     const transaction = new Transaction({
       txHash: `sim_${uuidv4()}`,
       walletAddress,
@@ -295,11 +361,38 @@ router.post("/sell", validateTradeRequest, async (req, res) => {
       fee,
       status: "confirmed",
     });
-    await transaction.save();
+    await transaction.save({ session });
 
-    // Update user stats
+    // Update user stats (with session)
     user.totalTransactions += 1;
-    await user.save();
+    await user.save({ session });
+
+    // Institutional Audit Log (Atomic with Transaction)
+    await auditService.logEvent({
+      eventType: "trade_executed",
+      walletAddress,
+      details: {
+        assetId,
+        shares,
+        type: "sell",
+        totalProceeds,
+        realizedPnl,
+        txHash: transaction.txHash
+      },
+      performedBy: walletAddress
+    }, session);
+
+    // 7. Commit Transaction & Post-Commit Actions
+    if (session) {
+      await session.commitTransaction();
+    }
+
+    // Invalidate Cache after Commit
+    await redis.del(cacheKey);
+    const keys = await redis.keys("assets:list:*");
+    if (keys.length > 0) {
+      await redis.del(...keys);
+    }
 
     // Trigger async Transfer Agent integration (Non-blocking)
     transferAgentService.syncTransfer(
@@ -311,23 +404,21 @@ router.post("/sell", validateTradeRequest, async (req, res) => {
 
     res.json({
       message: "Sale successful",
-      transaction: {
-        id: transaction._id,
-        txHash: transaction.txHash,
-        shares,
-        pricePerToken: asset.pricePerToken,
-        totalProceeds,
-        fee,
-        realizedPnl,
-        asset: {
-          name: asset.name,
-          symbol: asset.symbol,
-        },
-      },
+      transaction: { id: transaction._id, shares, totalProceeds, realizedPnl },
     });
   } catch (error) {
+    if (session) {
+      await session.abortTransaction();
+    }
     console.error("Sell error:", error);
-    res.status(500).json({ error: "Failed to process sale" });
+    res.status(500).json({ 
+      error: "Failed to process sale",
+      details: process.env.NODE_ENV === "development" ? error.message : undefined
+    });
+  } finally {
+    if (session) {
+      session.endSession();
+    }
   }
 });
 
@@ -335,7 +426,7 @@ router.post("/sell", validateTradeRequest, async (req, res) => {
  * POST /api/amm/swap
  * Execute a secondary market swap using the AMM pool
  */
-router.post("/amm/swap", async (req, res) => {
+router.post("/amm/swap", requireWalletSignature, async (req, res) => {
   try {
     const { assetId, walletAddress, swapDirection, amountIn, minAmountOut } = req.body;
     
@@ -361,6 +452,11 @@ router.post("/amm/swap", async (req, res) => {
     });
     
     await transaction.save();
+    await redis.del(`portfolio:${walletAddress}`);
+    const keys = await redis.keys("assets:list:*");
+    if (keys.length > 0) {
+      await redis.del(...keys);
+    }
     
     // Note: Portfolio update would normally happen via Indexer observing the chain
     // but for immediate UI response we might optimistically update it here if necessary.
@@ -376,7 +472,7 @@ router.post("/amm/swap", async (req, res) => {
  * POST /api/escrow/create
  * Create a P2P Over-The-Counter Escrow Trade
  */
-router.post("/escrow/create", async (req, res) => {
+router.post("/escrow/create", requireWalletSignature, async (req, res) => {
   try {
     const { assetId, sellerWallet, buyerWallet, shares, solAmount } = req.body;
     

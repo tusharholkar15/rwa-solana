@@ -8,8 +8,9 @@ import {
   MapPin, TrendingUp, Users, Building2, DollarSign, Percent,
   ArrowLeft, ExternalLink, ChevronLeft, ChevronRight, ShieldCheck,
   Clock, BarChart3, Coins, FileText, Download, Info, Zap,
-  Globe, Lock, Activity, ArrowUpRight, ArrowRight,
+  Globe, Lock, Activity, ArrowUpRight, ArrowRight, Heart
 } from 'lucide-react';
+
 import Link from 'next/link';
 import { api } from '@/lib/api';
 import { formatCurrency, lamportsToSol, getAssetTypeBadgeColor } from '@/lib/constants';

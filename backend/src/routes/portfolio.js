@@ -12,7 +12,7 @@ const { paginationMeta } = require("../utils/helpers");
  * GET /api/portfolio/:wallet/tax-lots
  * Get user's detailed tax lots for FIFO analysis
  */
-router.get("/:wallet/tax-lots", async (req, res) => {
+router.get("/:wallet/tax-lots", validateWallet, async (req, res) => {
   try {
     const { wallet } = req.params;
     
@@ -50,13 +50,25 @@ router.get("/:wallet/tax-lots", async (req, res) => {
   }
 });
 
+const redis = require("../config/redis");
+
 /**
  * GET /api/portfolio/:wallet
  * Get user's complete portfolio with holdings and stats
  */
-router.get("/:wallet", async (req, res) => {
+router.get("/:wallet", validateWallet, async (req, res) => {
+  const { wallet } = req.params;
+  const cacheKey = `portfolio:${wallet}`;
+
   try {
-    const { wallet } = req.params;
+    // 1. Try to serve from Redis cache
+    const cachedData = await redis.get(cacheKey);
+    if (cachedData) {
+      // Set HTTP Cache Headers for browser/CDN optimization
+    res.setHeader("Cache-Control", "public, s-maxage=10, stale-while-revalidate=59");
+
+    return res.json(JSON.parse(cachedData));
+    }
 
     const portfolio = await Portfolio.findOne({ walletAddress: wallet });
 
@@ -85,7 +97,7 @@ router.get("/:wallet", async (req, res) => {
 
         const currentValue = holding.shares * asset.pricePerToken;
         const navValue = holding.shares * (asset.navPrice || asset.pricePerToken);
-        const costBasis = holding.shares * holding.avgBuyPrice;
+        const costBasis = Math.round(holding.shares * (holding.avgBuyPrice || 0));
         const unrealizedPnl = currentValue - costBasis;
         const pnlPercentage = costBasis > 0 ? (unrealizedPnl / costBasis) * 100 : 0;
 
@@ -106,23 +118,21 @@ router.get("/:wallet", async (req, res) => {
           navValue,
           unrealizedPnl,
           pnlPercentage: Math.round(pnlPercentage * 100) / 100,
-          ownershipPercentage: 0, // Will be calculated below
+          totalYieldReceived: holding.totalYieldReceived || 0,
+          lastTransactionAt: holding.lastTransactionAt || null,
+          ownershipPercentage: 0,
         };
       })
     );
 
-    // Filter out null holdings (deleted assets)
     const validHoldings = enrichedHoldings.filter((h) => h !== null);
-
-    // Calculate totals
     const totalCurrentValue = validHoldings.reduce((sum, h) => sum + h.currentValue, 0);
     const totalNavValue = validHoldings.reduce((sum, h) => sum + h.navValue, 0);
     const totalUnrealizedPnl = validHoldings.reduce((sum, h) => sum + h.unrealizedPnl, 0);
 
-    // Get SOL price for USD conversion
     const solPrice = await priceService.getSolPrice();
 
-    res.json({
+    const responseData = {
       portfolio: {
         walletAddress: wallet,
         holdings: validHoldings,
@@ -139,7 +149,13 @@ router.get("/:wallet", async (req, res) => {
         valueHistory: portfolio.valueHistory || [],
       },
       solPrice: solPrice.price,
-    });
+      cached: false,
+    };
+
+    // 2. Cache the result for 10 seconds
+    await redis.setex(cacheKey, 10, JSON.stringify({ ...responseData, cached: true }));
+
+    res.json(responseData);
   } catch (error) {
     console.error("Portfolio error:", error);
     res.status(500).json({ error: "Failed to fetch portfolio" });
@@ -150,7 +166,7 @@ router.get("/:wallet", async (req, res) => {
  * GET /api/portfolio/:wallet/transactions
  * Get user's transaction history
  */
-router.get("/:wallet/transactions", async (req, res) => {
+router.get("/:wallet/transactions", validateWallet, async (req, res) => {
   try {
     const { wallet } = req.params;
     const { page = 1, limit = 20, type } = req.query;

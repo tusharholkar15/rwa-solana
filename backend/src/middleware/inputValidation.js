@@ -4,7 +4,7 @@
 const { z } = require("zod");
 
 // Reusable Schemas
-const walletSchema = z.string().length(44, "Invalid Solana wallet address length");
+const walletSchema = z.string().min(32).max(44, "Invalid Solana wallet address length");
 const positiveNumber = z.number().positive();
 
 // Trade Validator

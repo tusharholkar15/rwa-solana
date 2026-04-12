@@ -1,0 +1,46 @@
+{
+  "version": "0.1.0",
+  "name": "rwa_tokenization",
+  "instructions": [],
+  "events": [
+    {
+      "name": "AssetBought",
+      "fields": [
+        { "name": "asset", "type": "publicKey", "index": false },
+        { "name": "buyer", "type": "publicKey", "index": false },
+        { "name": "shares", "type": "u64", "index": false },
+        { "name": "totalCost", "type": "u64", "index": false },
+        { "name": "timestamp", "type": "i64", "index": false }
+      ]
+    },
+    {
+      "name": "AssetSold",
+      "fields": [
+        { "name": "asset", "type": "publicKey", "index": false },
+        { "name": "seller", "type": "publicKey", "index": false },
+        { "name": "shares", "type": "u64", "index": false },
+        { "name": "totalProceeds", "type": "u64", "index": false },
+        { "name": "timestamp", "type": "i64", "index": false }
+      ]
+    },
+    {
+      "name": "PriceUpdated",
+      "fields": [
+        { "name": "asset", "type": "publicKey", "index": false },
+        { "name": "price", "type": "u64", "index": false },
+        { "name": "oracleSource", "type": "u8", "index": false },
+        { "name": "timestamp", "type": "i64", "index": false }
+      ]
+    },
+    {
+      "name": "OracleBreachDetected",
+      "fields": [
+        { "name": "asset", "type": "publicKey", "index": false },
+        { "name": "spreadBps", "type": "u16", "index": false },
+        { "name": "consecutiveBreaches", "type": "u8", "index": false },
+        { "name": "isTripped", "type": "bool", "index": false },
+        { "name": "timestamp", "type": "i64", "index": false }
+      ]
+    }
+  ]
+}

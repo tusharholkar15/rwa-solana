@@ -146,4 +146,38 @@ router.patch("/assets/:id/toggle", requireAdmin, async (req, res) => {
   }
 });
 
+/**
+ * GET /api/admin/metrics
+ * Auditing & Infrastructure Performance Metrics
+ */
+router.get("/metrics", requireAdmin, async (req, res) => {
+  try {
+    const redis = require("../config/redis");
+    const mongoStatus = require("../config/database").isDatabaseConnected();
+    const redisStats = redis.getStats();
+
+    res.json({
+      timestamp: new Date().toISOString(),
+      infrastructure: {
+        database: {
+          provider: "MongoDB",
+          status: mongoStatus ? "CONNECTED" : "DISCONNECTED",
+        },
+        cache: {
+          provider: "Redis",
+          ...redisStats,
+        },
+      },
+      process: {
+        memory: process.memoryUsage(),
+        uptime: process.uptime(),
+        node: process.version,
+      }
+    });
+  } catch (error) {
+    console.error("Admin metrics error:", error);
+    res.status(500).json({ error: "Failed to fetch infrastructure metrics" });
+  }
+});
+
 module.exports = router;

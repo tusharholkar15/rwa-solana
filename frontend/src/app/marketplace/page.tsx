@@ -1,29 +1,65 @@
 'use client';
 
 import React, { useEffect, useState, useMemo } from 'react';
-import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Search,
-  SlidersHorizontal,
   Building2,
   ChevronDown,
   LayoutGrid,
   List,
-  Filter,
-  X,
-  ArrowRight,
   TrendingUp,
   ShieldCheck,
   Activity,
   Globe,
-  Zap,
+  MapPin,
+  Users,
+  ArrowUpRight,
 } from 'lucide-react';
+import { Grid } from 'react-window';
 import { api } from '@/lib/api';
 import { ASSET_TYPES } from '@/lib/constants';
+import { useWindowSize } from '@/hooks/useWindowSize';
 import InstitutionalAssetCard from '@/components/marketplace/InstitutionalAssetCard';
 import LiquidityPoolCard from '@/components/marketplace/LiquidityPoolCard';
 import MarketMap from '@/components/marketplace/MarketMap';
+import InstitutionalSkeleton from '@/components/marketplace/InstitutionalSkeleton';
+import { useRealtime } from '@/context/RealtimeContext';
+
+interface GridCellData {
+  assets: any[];
+  solPrice: number;
+  gridConfig: {
+    cols: number;
+    gutter: number;
+  };
+}
+
+/**
+ * Stable Cell component defined outside of the parent to prevent unmount/remount cycles.
+ * react-window v2 handles internal memoization via cellProps diffing — no React.memo needed.
+ */
+function GridCell({ columnIndex, rowIndex, style, assets, solPrice, gridConfig }: any) {
+  const assetIndex = rowIndex * gridConfig.cols + columnIndex;
+  const asset = assets[assetIndex];
+
+  if (!asset) return null;
+
+  return (
+    <div style={{
+      ...style,
+      paddingLeft: columnIndex === 0 ? 0 : gridConfig.gutter / 2,
+      paddingRight: columnIndex === gridConfig.cols - 1 ? 0 : gridConfig.gutter / 2,
+      paddingBottom: gridConfig.gutter,
+    }}>
+      <InstitutionalAssetCard 
+        asset={asset} 
+        solPrice={solPrice} 
+        index={assetIndex} 
+      />
+    </div>
+  );
+}
 
 export default function MarketplacePage() {
   const [assets, setAssets] = useState<any[]>([]);
@@ -33,16 +69,21 @@ export default function MarketplacePage() {
   const [riskFilter, setRiskFilter] = useState('');
   const [sortBy, setSortBy] = useState('createdAt');
   const [solPrice, setSolPrice] = useState(145);
-  const [showFilters, setShowFilters] = useState(false);
   const [viewMode, setViewMode] = useState<'grid' | 'list' | 'map'>('grid');
+  const { width: windowWidth } = useWindowSize();
+  const { marketEvents } = useRealtime();
 
-  // Mock Market Activity
-  const marketActivity = [
+  // Mock initial activity, will be prepended by live events
+  const [liveEvents, setLiveEvents] = useState([
     { id: 1, type: 'MINT', msg: 'New Institutional Mint: Austin Resi-Portfolio [+540.2 SOL]', time: '2m ago' },
     { id: 2, type: 'SWAP', msg: 'Large Whale Swap: Miami Industrial v2 [1,200 ASSET]', time: '5m ago' },
-    { id: 3, type: 'KYC', msg: 'Tier-1 Institutional Onboarded: [Singapore Capital]', time: '12m ago' },
-    { id: 4, type: 'TVL', msg: 'Platform Milestone: Total Value Locked reached $1.24B', time: '1h ago' },
-  ];
+  ]);
+
+  useEffect(() => {
+    if (marketEvents.length > 0) {
+      setLiveEvents(prev => [...marketEvents, ...prev].slice(0, 10));
+    }
+  }, [marketEvents]);
 
   useEffect(() => {
     loadAssets();
@@ -55,7 +96,7 @@ export default function MarketplacePage() {
         type: typeFilter || undefined,
         sortBy,
         search: search || undefined,
-        limit: 50, // Fetch more for soft filtering
+        limit: 200, 
       });
       setAssets(res.assets);
       setSolPrice(res.solPrice);
@@ -67,7 +108,6 @@ export default function MarketplacePage() {
     }
   }
 
-  // Soft filtering for Risk Grade (simulated since not in DB)
   const filteredAssets = useMemo(() => {
     let result = [...assets];
     
@@ -81,7 +121,6 @@ export default function MarketplacePage() {
     }
 
     if (riskFilter) {
-      // Mocked risk filtering logic
       const riskMap: Record<string, string> = {
         residential: 'A-', commercial: 'A+', industrial: 'B+', 
         land: 'B', 'mixed-use': 'A', hospitality: 'B-',
@@ -95,6 +134,15 @@ export default function MarketplacePage() {
     return result;
   }, [assets, search, riskFilter]);
 
+  const GRID_CONFIG = useMemo(() => {
+    if (!windowWidth) return { cols: 1, width: 350, gutter: 16 };
+    const containerWidth = Math.min(windowWidth - 64, 1280); 
+    if (windowWidth >= 1024) return { cols: 3, width: containerWidth / 3, gutter: 32 };
+    if (windowWidth >= 768) return { cols: 2, width: containerWidth / 2, gutter: 24 };
+    return { cols: 1, width: containerWidth, gutter: 16 };
+  }, [windowWidth]);
+
+
   function handleSearch(e: React.FormEvent) {
     e.preventDefault();
     loadAssets();
@@ -104,7 +152,6 @@ export default function MarketplacePage() {
     <div className="min-h-screen bg-surface-950 pt-10 pb-32">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         
-        {/* ─── Institutional Header ───────────────────────── */}
         <div className="flex flex-col md:flex-row md:items-end justify-between mb-12 gap-6">
           <motion.div 
             initial={{ opacity: 0, x: -20 }}
@@ -122,7 +169,6 @@ export default function MarketplacePage() {
             </p>
           </motion.div>
 
-          {/* Stats Bar */}
           <div className="flex items-center gap-8 p-6 institutional-glass bg-white/[0.02]">
             <div>
                <div className="text-[10px] text-white/30 uppercase font-bold tracking-widest mb-1">Live SOL Price</div>
@@ -133,27 +179,51 @@ export default function MarketplacePage() {
                <div className="text-[10px] text-white/30 uppercase font-bold tracking-widest mb-1">Platform TVL</div>
                <div className="text-xl font-display font-bold text-emerald-400">$1.24B</div>
             </div>
+            <div className="w-px h-10 bg-white/10 hidden xl:block" />
+            <div className="hidden xl:block min-w-[300px]">
+               <div className="text-[10px] text-white/30 uppercase font-bold tracking-widest mb-2 flex items-center gap-2">
+                 <Activity size={10} className="text-emerald-400 animate-pulse" />
+                 Institutional Activity
+               </div>
+               <div className="h-8 overflow-hidden relative">
+                 <AnimatePresence mode="popLayout">
+                   {liveEvents.slice(0, 1).map((event) => (
+                     <motion.div
+                       key={event.id}
+                       initial={{ opacity: 0, y: 20 }}
+                       animate={{ opacity: 1, y: 0 }}
+                       exit={{ opacity: 0, y: -20 }}
+                       className="text-[11px] font-bold text-white/70 truncate flex items-center gap-2"
+                     >
+                       <span className={`px-1.5 py-0.5 rounded-[3px] text-[8px] ${
+                         event.type === 'MINT' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-blue-500/20 text-blue-400'
+                       }`}>
+                         {event.type}
+                       </span>
+                       {event.msg}
+                     </motion.div>
+                   ))}
+                 </AnimatePresence>
+               </div>
+            </div>
           </div>
         </div>
 
-        {/* ─── Controls ───────────────────────────────────── */}
         <div className="sticky top-24 z-40 mb-10">
           <div className="p-2 institutional-glass bg-surface-950/80 backdrop-blur-3xl border-white/10 flex flex-col lg:flex-row gap-4 items-center">
             
-            {/* Search */}
             <form onSubmit={handleSearch} className="flex-1 relative w-full lg:w-auto">
               <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/30" />
               <input
                 type="text"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search by asset name, location, or risk grade..."
+                placeholder="Search assets..."
                 className="w-full pl-12 pr-4 py-3 bg-white/5 border border-white/5 rounded-xl text-white placeholder-white/20 focus:outline-none focus:border-emerald-500/50 transition-all font-medium"
               />
             </form>
 
             <div className="flex items-center gap-2 w-full lg:w-auto">
-              {/* Type Filter */}
               <div className="relative group w-full lg:w-48">
                 <select
                   value={typeFilter}
@@ -168,7 +238,6 @@ export default function MarketplacePage() {
                 <ChevronDown size={14} className="absolute right-4 top-1/2 -translate-y-1/2 text-white/40 pointer-events-none" />
               </div>
 
-              {/* Risk Filter */}
               <div className="relative group w-full lg:w-32">
                 <select
                   value={riskFilter}
@@ -184,24 +253,14 @@ export default function MarketplacePage() {
 
               <div className="h-10 w-px bg-white/10 hidden lg:block mx-2" />
 
-              {/* View Toggle */}
               <div className="flex bg-white/5 rounded-xl p-1 border border-white/5">
-                <button 
-                  onClick={() => setViewMode('grid')}
-                  className={`p-2 rounded-lg transition-all ${viewMode === 'grid' ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/20' : 'text-white/40 hover:text-white'}`}
-                >
+                <button onClick={() => setViewMode('grid')} className={`p-2 rounded-lg ${viewMode === 'grid' ? 'bg-emerald-500 text-white' : 'text-white/40'}`}>
                   <LayoutGrid size={18} />
                 </button>
-                <button 
-                  onClick={() => setViewMode('list')}
-                  className={`p-2 rounded-lg transition-all ${viewMode === 'list' ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/20' : 'text-white/40 hover:text-white'}`}
-                >
+                <button onClick={() => setViewMode('list')} className={`p-2 rounded-lg ${viewMode === 'list' ? 'bg-emerald-500 text-white' : 'text-white/40'}`}>
                   <List size={18} />
                 </button>
-                <button 
-                  onClick={() => setViewMode('map')}
-                  className={`p-2 rounded-lg transition-all ${viewMode === 'map' ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/20' : 'text-white/40 hover:text-white'}`}
-                >
+                <button onClick={() => setViewMode('map')} className={`p-2 rounded-lg ${viewMode === 'map' ? 'bg-emerald-500 text-white' : 'text-white/40'}`}>
                   <Globe size={18} />
                 </button>
               </div>
@@ -209,23 +268,6 @@ export default function MarketplacePage() {
           </div>
         </div>
 
-        {/* ─── Institutional Activity Tape ────────────────── */}
-        <div className="mb-10 overflow-hidden relative">
-          <div className="flex whitespace-nowrap animate-marquee-slower hover:pause pointer-events-auto [will-change:transform]">
-             {[...marketActivity, ...marketActivity].map((act, i) => (
-                <div key={i} className="flex items-center gap-3 px-8 text-[10px] font-bold tracking-widest uppercase">
-                   <div className={`w-1.5 h-1.5 rounded-full ${act.type === 'MINT' ? 'bg-emerald-500' : act.type === 'SWAP' ? 'bg-indigo-500' : 'bg-amber-500'} shadow-[0_0_8px_currentColor]`} />
-                   <span className="text-white/30">{act.type}</span>
-                   <span className="text-white">{act.msg}</span>
-                   <span className="text-white/10">{act.time}</span>
-                </div>
-             ))}
-          </div>
-          <div className="absolute inset-y-0 left-0 w-20 bg-gradient-to-r from-surface-950 to-transparent z-10" />
-          <div className="absolute inset-y-0 right-0 w-20 bg-gradient-to-l from-surface-950 to-transparent z-10" />
-        </div>
-
-        {/* ─── Results ────────────────────────────────────── */}
         <div className="flex items-center justify-between mb-8">
            <div className="flex items-center gap-2 text-white/40 text-sm font-bold">
               <TrendingUp size={14} className="text-emerald-500" />
@@ -236,105 +278,62 @@ export default function MarketplacePage() {
               <select 
                 value={sortBy} 
                 onChange={(e) => setSortBy(e.target.value)}
-                className="bg-transparent text-white/60 hover:text-white focus:outline-none cursor-pointer"
+                className="bg-transparent text-white/60 focus:outline-none cursor-pointer"
               >
                 <option value="createdAt">Newest Arrival</option>
                 <option value="annualYieldBps">Highest Yield</option>
                 <option value="pricePerToken">Lowest Price</option>
-                <option value="propertyValue">Highest Value</option>
               </select>
            </div>
         </div>
 
         {loading ? (
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {[1, 2, 3, 4, 5, 6].map((i) => (
-              <div key={i} className="institutional-glass h-96 animate-pulse bg-white/[0.02]" />
-            ))}
+            {[1, 2, 3, 4, 5, 6].map((i) => <InstitutionalSkeleton key={i} />)}
           </div>
         ) : filteredAssets.length === 0 ? (
-          <div className="institutional-glass p-32 text-center flex flex-col items-center">
-            <div className="w-20 h-20 rounded-full bg-white/5 flex items-center justify-center mb-8">
-               <Building2 size={40} className="text-white/10" />
-            </div>
-            <h3 className="text-2xl font-display font-bold text-white mb-3">No Institutional Assets Found</h3>
-            <p className="text-white/40 mb-10 max-w-sm">Try adjusting your filters or contact your account manager for private placement opportunities.</p>
-            <button onClick={() => {setSearch(''); setTypeFilter(''); setRiskFilter('');}} className="btn-secondary-institutional">
-              Clear All Filters
-            </button>
+          <div className="institutional-glass p-32 text-center">
+            <h3 className="text-2xl font-display font-bold text-white">No Assets Found</h3>
           </div>
         ) : (
           <AnimatePresence mode="wait">
             {viewMode === 'map' ? (
-              <motion.div
-                key="map"
-                initial={{ opacity: 0, scale: 0.98 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.98 }}
-              >
-                <MarketMap assets={filteredAssets} />
-              </motion.div>
+              <MarketMap assets={filteredAssets} />
             ) : (
-              <motion.div
-                key={viewMode}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -20 }}
-                className={viewMode === 'grid' ? "grid md:grid-cols-2 lg:grid-cols-3 gap-8" : "space-y-6"}
-              >
-                {filteredAssets.map((asset, i) => (
-                  <InstitutionalAssetCard 
-                    key={asset._id} 
-                    asset={asset} 
-                    solPrice={solPrice} 
-                    index={i} 
-                  />
-                ))}
-              </motion.div>
+              <Grid
+                columnCount={GRID_CONFIG.cols}
+                columnWidth={GRID_CONFIG.width}
+                rowCount={Math.ceil(filteredAssets.length / GRID_CONFIG.cols)}
+                rowHeight={580}
+                cellComponent={GridCell}
+                cellProps={{
+                  assets: filteredAssets,
+                  solPrice,
+                  gridConfig: GRID_CONFIG
+                }}
+                style={{
+                  height: 800,
+                  width: Math.min(windowWidth || 1200, 1280)
+                }}
+                className="scrollbar-hide"
+              />
             )}
           </AnimatePresence>
         )}
 
-        {/* ─── Secondary Liquidity Pools ──────────────────── */}
         {!loading && filteredAssets.length > 0 && (
-          <motion.div 
-            initial={{ opacity: 0, y: 40 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            className="mt-32"
-          >
-            <div className="flex flex-col md:flex-row md:items-end justify-between mb-12 gap-6">
+          <div className="mt-32">
+            <div className="flex flex-col md:flex-row justify-between mb-12 gap-6">
               <div>
-                <div className="flex items-center gap-2 text-indigo-400 font-bold uppercase tracking-[0.2em] text-[10px] mb-3">
-                  <Activity size={12} />
-                  AMM Secondary Market
-                </div>
-                <h2 className="text-3xl md:text-4xl font-display font-black text-white mb-4">
-                  Liquidity<span className="text-indigo-400">Pools</span>
-                </h2>
-                <p className="text-white/40 max-w-lg font-medium">
-                  Provide liquidity to earn protocol fees and support 24/7 trading for high-quality real estate tokens.
-                </p>
-              </div>
-              <div className="p-4 rounded-xl bg-white/[0.02] border border-white/5 flex items-center gap-6">
-                 <div>
-                    <div className="text-[9px] text-white/20 uppercase font-bold tracking-widest mb-1">Total Pool TVL</div>
-                    <div className="text-lg font-display font-bold text-white">$14.2M</div>
-                 </div>
-                 <div className="w-px h-8 bg-white/10" />
-                 <div>
-                    <div className="text-[9px] text-white/20 uppercase font-bold tracking-widest mb-1">Avg. LP APY</div>
-                    <div className="text-lg font-display font-bold text-emerald-400">10.4%</div>
-                 </div>
+                <h2 className="text-3xl font-display font-black text-white">Liquidity Pools</h2>
               </div>
             </div>
-
-            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
+            <div className="grid md:grid-cols-3 gap-8">
               {filteredAssets.slice(0, 3).map((asset, i) => (
                 <LiquidityPoolCard key={asset._id} asset={asset} index={i} />
               ))}
             </div>
-          </motion.div>
+          </div>
         )}
       </div>
     </div>

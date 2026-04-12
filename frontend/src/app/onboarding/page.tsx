@@ -33,7 +33,13 @@ export default function OnboardingPage() {
         body: JSON.stringify({ assetId: 'sim', shares: 0, walletAddress: publicKey.toBase58() })
       }).catch(() => {});
       
-      const res = await api.submitKyc(formData, publicKey.toBase58());
+      const res = await api.submitKyc({
+        walletAddress: publicKey.toBase58(),
+        documentType: formData.documentType,
+        documentId: 'SIMULATED-DOC-ID',
+        name: `${formData.firstName} ${formData.lastName}`,
+        email: formData.email,
+      });
       setSuccess(true);
     } catch (e) {
       console.error(e);

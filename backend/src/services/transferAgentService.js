@@ -11,7 +11,7 @@ const Asset = require("../models/Asset");
 class TransferAgentService {
   constructor() {
     // In a real system, you'd store API keys for the TA provider here.
-    this.syncDelayMs = 1500; // Simulate network call to TA API
+    this.syncDelayMs = process.env.NODE_ENV === "development" ? 10 : 1500; // Simulate network call to TA API
   }
 
   /**
