@@ -1,51 +1,74 @@
 use anchor_lang::prelude::*;
 
 use crate::errors::RwaError;
-use crate::state::{AssetAccount, GovernanceProposal, ProposalStatus, WhitelistEntry, UserRole};
+use crate::state::{
+    AssetAccount, GovernanceProposal, ProgramConfig, ProposalStatus, GOVERNANCE_TIMELOCK_SECS,
+};
 
-/// Execute a passed governance proposal
-/// Finalizes the proposal, returns the proposer's stake, and applies the voted action.
+/// Execute a passed governance proposal.
+///
+/// HARDENING: Two additional checks are now enforced:
+///
+/// 1. **Timelock**: A minimum of `GOVERNANCE_TIMELOCK_SECS` (24h) must have elapsed since
+///    `vote_end` before the proposal can be executed. This gives the platform guardian time
+///    to veto any malicious proposal that slipped through quorum.
+///
+/// 2. **Emergency Veto**: If `ProgramConfig.emergency_pause = true`, all proposal execution
+///    is halted until the pause is lifted by the platform authority.
+///
+/// 3. **Status Precision**: Passed proposals transition to `Executed` (not `Passed`),
+///    preventing idempotency bugs from double-execution.
 pub fn handler(ctx: Context<ExecuteProposal>) -> Result<()> {
     let clock = Clock::get()?;
     let proposal = &ctx.accounts.proposal;
     let asset = &ctx.accounts.asset;
+    let config = &ctx.accounts.config;
 
-    // Voting must have ended
+    // ── Emergency Veto ─────────────────────────────────────────
+    require!(
+        !config.emergency_pause,
+        RwaError::EmergencyPauseActive
+    );
+
+    // ── Voting Must Have Ended ──────────────────────────────────
     require!(
         proposal.is_voting_ended(clock.unix_timestamp),
         RwaError::VotingNotStarted
     );
 
-    // Proposal must be Active (not already executed/cancelled)
+    // ── Timelock Guard ──────────────────────────────────────────
+    // Must wait 24h after vote_end before executing (guardian veto window)
+    require!(
+        clock.unix_timestamp >= proposal.vote_end + GOVERNANCE_TIMELOCK_SECS,
+        RwaError::TimelockNotExpired
+    );
+
+    // ── Proposal Must Be Active (not executed or cancelled) ─────
     require!(
         proposal.status == ProposalStatus::Active,
         RwaError::ProposalNotExecutable
     );
 
-    // Check if it passed
+    // ── Check Outcome ───────────────────────────────────────────
     let passed = proposal.has_passed(asset.total_supply);
-
-    // Update status
     let proposal = &mut ctx.accounts.proposal;
 
     if passed {
-        proposal.status = ProposalStatus::Passed;
+        proposal.status = ProposalStatus::Executed;
         proposal.executed_at = clock.unix_timestamp;
 
         msg!(
-            "Proposal '{}' PASSED — votes: {} for / {} against / {} abstain (quorum: {}/{})",
+            "Proposal '{}' EXECUTED (timelock cleared) — {} for / {} against / {} abstain",
             proposal.title,
             proposal.votes_for,
             proposal.votes_against,
             proposal.votes_abstain,
-            proposal.total_votes(),
-            asset.total_supply
         );
     } else {
         proposal.status = ProposalStatus::Failed;
 
         msg!(
-            "Proposal '{}' FAILED — votes: {} for / {} against (quorum met: {})",
+            "Proposal '{}' FAILED — {} for / {} against (quorum_met: {})",
             proposal.title,
             proposal.votes_for,
             proposal.votes_against,
@@ -53,7 +76,7 @@ pub fn handler(ctx: Context<ExecuteProposal>) -> Result<()> {
         );
     }
 
-    // Return proposer's stake
+    // ── Return Proposer's Stake ─────────────────────────────────
     let stake = proposal.stake_amount;
     if stake > 0 {
         **ctx
@@ -73,7 +96,7 @@ pub fn handler(ctx: Context<ExecuteProposal>) -> Result<()> {
 
 #[derive(Accounts)]
 pub struct ExecuteProposal<'info> {
-    /// The executor (must be admin or the original proposer after voting ends)
+    /// Any executor is allowed — the timelock + veto are the guards, not identity
     pub executor: Signer<'info>,
 
     /// The asset this proposal is for
@@ -104,5 +127,14 @@ pub struct ExecuteProposal<'info> {
     )]
     pub proposer: UncheckedAccount<'info>,
 
+    /// Global platform config — checked for emergency_pause veto
+    #[account(
+        seeds = [ProgramConfig::SEED_PREFIX],
+        bump = config.bump,
+    )]
+    pub config: Account<'info, ProgramConfig>,
+
     pub system_program: Program<'info, System>,
 }
+
+

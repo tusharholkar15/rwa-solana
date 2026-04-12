@@ -2,13 +2,15 @@ use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
 
 use crate::errors::RwaError;
-use crate::state::{AssetAccount, AssetLifecycleStatus, TreasuryVault};
+use crate::state::{AssetAccount, AssetLifecycleStatus, TreasuryVault, MultiVerification};
 
 /// Approve tokenization — transitions a Verified asset to Tokenized → Active
 /// Mints SPL tokens to the treasury. Only callable by the asset authority (admin).
+/// HARDENING: Now requires 2-of-3 multi-signature verification approval.
 pub fn handler(ctx: Context<ApproveTokenization>) -> Result<()> {
     let clock = Clock::get()?;
     let asset = &ctx.accounts.asset;
+    let multi_verification = &ctx.accounts.multi_verification;
 
     // Must be the asset authority
     require!(
@@ -20,6 +22,16 @@ pub fn handler(ctx: Context<ApproveTokenization>) -> Result<()> {
     require!(
         asset.lifecycle_status == AssetLifecycleStatus::Verified,
         RwaError::InvalidLifecycleStatus
+    );
+
+    // HARDENING: Verify multi-sig threshold has been met
+    require!(
+        multi_verification.is_approved(),
+        RwaError::InvalidLifecycleStatus
+    );
+    require!(
+        multi_verification.asset == asset.key(),
+        RwaError::Unauthorized
     );
 
     // Fraud score must be acceptable
@@ -57,7 +69,7 @@ pub fn handler(ctx: Context<ApproveTokenization>) -> Result<()> {
     asset.is_active = true;
 
     msg!(
-        "Asset '{}' tokenized and activated — {} tokens minted",
+        "Asset '{}' tokenized and activated — {} tokens minted (Multi-Sig Verified)",
         asset.name,
         asset.total_supply
     );
@@ -79,6 +91,13 @@ pub struct ApproveTokenization<'info> {
         constraint = asset.authority == authority.key() @ RwaError::Unauthorized,
     )]
     pub asset: Account<'info, AssetAccount>,
+
+    /// Multi-verification record (must be approved)
+    #[account(
+        seeds = [MultiVerification::SEED_PREFIX, asset.key().as_ref()],
+        bump = multi_verification.bump,
+    )]
+    pub multi_verification: Account<'info, MultiVerification>,
 
     /// The SPL token mint for this asset
     #[account(

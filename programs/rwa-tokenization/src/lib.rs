@@ -113,6 +113,31 @@ pub mod rwa_tokenization {
         instructions::migrate_asset_v2::handler(ctx)
     }
 
+    /// Register an independent legal verifier
+    pub fn register_verifier(
+        ctx: Context<RegisterVerifier>,
+        name: String,
+        jurisdiction_bitmask: u32,
+        stake_amount: u64,
+    ) -> Result<()> {
+        instructions::register_verifier::handler(ctx, name, jurisdiction_bitmask, stake_amount)
+    }
+
+    /// Initiate multi-verifier process for an asset
+    pub fn initiate_multi_verification(
+        ctx: Context<InitiateMultiVerification>,
+        legal_doc_hash: [u8; 32],
+        attestation_hash: [u8; 32],
+        ipfs_cid: String,
+    ) -> Result<()> {
+        instructions::initiate_multi_verification::handler(ctx, legal_doc_hash, attestation_hash, ipfs_cid)
+    }
+
+    /// Approve an asset as an independent verifier
+    pub fn approve_multi_verification(ctx: Context<ApproveMultiVerification>) -> Result<()> {
+        instructions::approve_multi_verification::handler(ctx)
+    }
+
     // ═══════════════════════════════════════════════════════
     // MODULE 2 — Compliance & RBAC
     // ═══════════════════════════════════════════════════════
@@ -284,6 +309,23 @@ pub struct OracleBreachDetected {
     pub asset: Pubkey,
     pub spread_bps: u16,
     pub consecutive_breaches: u8,
+    pub is_tripped: bool,
+    pub timestamp: i64,
+}
+
+#[event]
+pub struct OracleFailureDetected {
+    pub asset: Pubkey,
+    pub consecutive_failures: u8,
+    pub is_tripped: bool,
+    pub timestamp: i64,
+}
+
+#[event]
+pub struct OracleZScoreBreachDetected {
+    pub asset: Pubkey,
+    pub zscore_x100: u16,
+    pub price: u64,
     pub is_tripped: bool,
     pub timestamp: i64,
 }

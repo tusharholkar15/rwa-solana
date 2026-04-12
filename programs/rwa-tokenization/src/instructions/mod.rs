@@ -20,6 +20,9 @@ pub mod transfer_shares;
 pub mod update_price;
 pub mod verify_asset;
 pub mod whitelist_user;
+pub mod register_verifier;
+pub mod initiate_multi_verification;
+pub mod approve_multi_verification;
 
 pub use approve_tokenization::*;
 pub use buy_shares::*;
@@ -43,3 +46,6 @@ pub use transfer_shares::*;
 pub use update_price::*;
 pub use verify_asset::*;
 pub use whitelist_user::*;
+pub use register_verifier::*;
+pub use initiate_multi_verification::*;
+pub use approve_multi_verification::*;

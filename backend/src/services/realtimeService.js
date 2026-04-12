@@ -126,13 +126,24 @@ class RealtimeService {
       this.io.to(channel).emit('gov_event', payload);
     } else if (channel.startsWith('portfolio:')) {
       this.io.to(channel).emit('portfolio_event', payload);
+    } else if (channel === 'trade_events' || channel === 'price_update') {
+      // Broadcast to specific asset room + firehose
+      this.io.emit(channel, payload); 
+      if (payload.assetId) {
+        this.io.to(`asset:${payload.assetId}`).emit(channel, payload);
+      }
+    } else if (channel === 'WARN_ORACLE_BREACH') {
+      this.io.emit('WARN_ORACLE_BREACH', payload);
     }
 
     // Also push to Redis for cross-node replication (if running in cluster)
     if (this.redisPub && this.redisPub.status === 'ready') {
       let redisChannel = 'asset_updates';
       if (channel.startsWith('governance')) redisChannel = 'governance_events';
-      if (channel.startsWith('portfolio')) redisChannel = 'portfolio_updates'; // Optional handling
+      if (channel.startsWith('portfolio')) redisChannel = 'portfolio_updates'; 
+      if (channel === 'trade_events' || channel === 'price_update' || channel === 'WARN_ORACLE_BREACH') {
+         redisChannel = channel;
+      }
       
       this.redisPub.publish(redisChannel, JSON.stringify(payload)).catch(() => {});
     }

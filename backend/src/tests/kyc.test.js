@@ -5,7 +5,8 @@ const app = require('../index');
 const User = require('../models/User');
 
 describe('KYC API Endpoints', () => {
-    const testWallet = 'test-wallet-' + Date.now();
+    // Solana wallet addresses must be 32-44 base58 chars (no 0, O, I, l).
+    const testWallet = (Date.now().toString().replace(/0/g, '2') + '11111111111111111111111111').substring(0, 32);
 
     before(async () => {
         // Ensure DB connection is ready

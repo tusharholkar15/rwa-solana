@@ -10,51 +10,63 @@ const Asset = require("../models/Asset");
  */
 class TransferAgentService {
   constructor() {
-    // In a real system, you'd store API keys for the TA provider here.
-    this.syncDelayMs = process.env.NODE_ENV === "development" ? 10 : 1500; // Simulate network call to TA API
+    this.syncDelayMs = process.env.NODE_ENV === "development" ? 10 : 1500;
+    this.queue = [];
+    this.isProcessing = false;
   }
 
-  /**
-   * Sync a token transfer with the Transfer Agent's ledger
-   */
   async syncTransfer(assetId, fromWallet, toWallet, amount, timestamp = new Date()) {
-    try {
-      console.log(`[TransferAgent] Syncing transfer for Asset ${assetId}: ${amount} shares from ${fromWallet} to ${toWallet}...`);
+    return new Promise((resolve, reject) => {
+      this.queue.push(async () => {
+        try {
+          console.log(`[TransferAgent] Syncing transfer for Asset ${assetId}: ${amount} shares from ${fromWallet} to ${toWallet}...`);
 
-      // 1. Validate the asset exists
-      const asset = await Asset.findById(assetId);
-      if (!asset) {
-        throw new Error(`Asset ${assetId} not found`);
-      }
+          const asset = await Asset.findById(assetId);
+          if (!asset) {
+            throw new Error(`Asset ${assetId} not found`);
+          }
 
-      // 2. Simulate API call to Securitize / tZERO
-      await new Promise(resolve => setTimeout(resolve, this.syncDelayMs));
+          await new Promise(r => setTimeout(r, this.syncDelayMs));
 
-      // 3. Simulated response
-      const transferReceipt = {
-        transferAgentId: "TA-" + Math.random().toString(36).substring(2, 10).toUpperCase(),
-        assetId: assetId.toString(),
-        assetSymbol: asset.symbol,
-        fromHolder: fromWallet,
-        toHolder: toWallet,
-        amount: amount,
-        notionalValueUsd: amount * asset.navPrice || amount * asset.pricePerToken,
-        status: "SETTLED",
-        timestamp: timestamp.toISOString(),
-      };
+          const transferReceipt = {
+            transferAgentId: "TA-" + Math.random().toString(36).substring(2, 10).toUpperCase(),
+            assetId: assetId.toString(),
+            assetSymbol: asset.symbol,
+            fromHolder: fromWallet,
+            toHolder: toWallet,
+            amount: amount,
+            notionalValueUsd: amount * (asset.navPrice || asset.pricePerToken),
+            status: "SETTLED",
+            timestamp: timestamp.toISOString(),
+          };
 
-      console.log(`[TransferAgent] Transfer synced successfully. Receipt: ${transferReceipt.transferAgentId}`);
+          console.log(`[TransferAgent] Transfer synced successfully. Receipt: ${transferReceipt.transferAgentId}`);
+          resolve(transferReceipt);
 
-      // In production we would save this receipt to an immutable AuditLog collection.
+        } catch (error) {
+          console.error("[TransferAgent] Sync failed:", error);
+          reject(error);
+        }
+      });
       
-      return transferReceipt;
+      this.processQueue();
+    });
+  }
 
-    } catch (error) {
-      console.error("[TransferAgent] Sync failed:", error);
-      // Depending on strictness, a sync failure might need to queue for retry
-      // or trigger a compliance alert, but we usually won't reverse the on-chain trade.
-      throw error;
+  async processQueue() {
+    if (this.isProcessing || this.queue.length === 0) return;
+    this.isProcessing = true;
+    
+    while (this.queue.length > 0) {
+      const task = this.queue.shift();
+      try {
+        await task();
+      } catch (e) {
+        // Task failure caught in its own promise wrapper
+      }
     }
+    
+    this.isProcessing = false;
   }
 }
 

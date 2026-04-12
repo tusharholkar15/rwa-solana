@@ -19,50 +19,52 @@ const blockchainEventSchema = new mongoose.Schema(
       required: true,
     },
 
-    // Event classification
+    // Event classification (Legacy)
     eventType: {
       type: String,
-      enum: [
-        "asset_initialized",
-        "asset_verified",
-        "asset_tokenized",
-        "shares_bought",
-        "shares_sold",
-        "shares_transferred",
-        "yield_distributed",
-        "price_updated",
-        "user_whitelisted",
-        "user_removed",
-        "role_set",
-        "pool_created",
-        "swap_executed",
-        "escrow_created",
-        "escrow_settled",
-        "escrow_disputed",
-        "escrow_refunded",
-        "proposal_created",
-        "vote_cast",
-        "proposal_executed",
-        "config_updated",
-      ],
-      required: true,
+      index: true,
+    },
+
+    // Strict classification
+    type: {
+      type: String,
+      enum: ["BUY", "SELL", "PRICE", "ORACLE_ALERT", "UNKNOWN"],
+      default: "UNKNOWN",
       index: true,
     },
 
     // Participants
     primaryWallet: {
-      type: String, // The main actor (buyer, seller, proposer, etc.)
+      type: String, // Legacy support
       index: true,
     },
-    secondaryWallet: String, // Counter-party if applicable
+    wallet: {
+      type: String, // Updated explicitly requested schema field
+      index: true,
+    },
+    secondaryWallet: String,
 
     // References
-    assetAddress: String,
+    assetAddress: String, // Legacy support
+    assetId: {
+      type: String, // Updated explicitly requested schema field
+      index: true,
+    },
     assetName: String,
+
+    // Event-specific numeric data
+    amount: {
+      type: Number,
+      default: 0,
+    },
 
     // Event-specific data (flexible schema)
     data: {
-      type: mongoose.Schema.Types.Mixed,
+      type: mongoose.Schema.Types.Mixed, // Legacy support
+      default: {},
+    },
+    metadata: {
+      type: mongoose.Schema.Types.Mixed, // Explicitly requested field
       default: {},
     },
 

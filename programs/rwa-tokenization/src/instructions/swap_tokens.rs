@@ -3,7 +3,7 @@ use anchor_lang::system_program;
 use anchor_spl::token::{self, Token, TokenAccount};
 
 use crate::errors::RwaError;
-use crate::state::{AssetAccount, LiquidityPool, WhitelistEntry, MAX_SWAP_POOL_BPS};
+use crate::state::{AssetAccount, LiquidityPool, OracleCircuitBreaker, WhitelistEntry, MAX_SWAP_POOL_BPS};
 
 /// Execute an AMM swap — token↔SOL using constant-product formula
 /// Includes slippage protection and anti-whale guard.
@@ -18,6 +18,15 @@ pub fn handler(
 
     require!(amount_in > 0, RwaError::InvalidAmount);
     require!(pool.is_active, RwaError::PoolNotActive);
+
+    // ── Oracle Circuit Breaker Guard ──────────────────────────
+    // Block all swaps if the oracle has tripped (stale/manipulated price).
+    // This prevents trading at a frozen price during an oracle outage.
+    let breaker = &ctx.accounts.circuit_breaker;
+    require!(
+        !breaker.is_tripped,
+        RwaError::OracleCircuitBreakerTripped
+    );
 
     // Validate whitelist
     let whitelist = &ctx.accounts.user_whitelist;
@@ -203,6 +212,13 @@ pub struct SwapTokens<'info> {
         token::authority = pool,
     )]
     pub pool_token_account: Account<'info, TokenAccount>,
+
+    /// Oracle circuit breaker for this asset — must NOT be tripped
+    #[account(
+        seeds = [OracleCircuitBreaker::SEED_PREFIX, asset.key().as_ref()],
+        bump = circuit_breaker.bump,
+    )]
+    pub circuit_breaker: Account<'info, OracleCircuitBreaker>,
 
     /// User's token account
     #[account(

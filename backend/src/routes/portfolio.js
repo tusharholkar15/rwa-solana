@@ -152,7 +152,7 @@ router.get("/:wallet", validateWallet, async (req, res) => {
       cached: false,
     };
 
-    // 2. Cache the result for 10 seconds
+    // 2. Cache the result for 10 seconds as this is a high-frequency trading platform
     await redis.setex(cacheKey, 10, JSON.stringify({ ...responseData, cached: true }));
 
     res.json(responseData);

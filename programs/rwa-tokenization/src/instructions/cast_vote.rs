@@ -3,7 +3,7 @@ use anchor_lang::prelude::*;
 use crate::errors::RwaError;
 use crate::state::{
     AssetAccount, GovernanceProposal, UserOwnership, VoteChoice, VoteDelegation, VoteRecord,
-    WhitelistEntry,
+    WhitelistEntry, MIN_TOKEN_HOLD_SLOTS,
 };
 
 /// Cast a vote on a governance proposal using QUADRATIC voting power.
@@ -13,8 +13,10 @@ use crate::state::{
 ///   - Effective power  = integer_sqrt(shares_owned)
 ///   - Vote cap         = integer_sqrt(MAX_VOTE_CAP_TOKENS) prevents extreme whale dominance
 ///
-/// This means a whale with 10,000x more tokens only gets 100x more votes,
-/// not 10,000x — dramatically reducing plutocratic outcomes.
+/// Flash-Loan Guard:
+///   Tokens must have been held for at least MIN_TOKEN_HOLD_SLOTS slots before voting.
+///   This blocks same-transaction governance attacks where an attacker borrows a large
+///   token position, votes, and returns the tokens in the same block.
 ///
 /// Delegation support: If a voter has received delegated power, add it on top
 /// of their own sqrt-adjusted balance.
@@ -33,6 +35,18 @@ pub fn handler(ctx: Context<CastVote>, vote: VoteChoice) -> Result<()> {
         ctx.accounts.voter_whitelist.is_valid(clock.unix_timestamp),
         RwaError::NotWhitelisted
     );
+
+    // ── Flash-Loan Guard ───────────────────────────────────────
+    // Tokens must have been held for MIN_TOKEN_HOLD_SLOTS slots.
+    // last_acquired_slot == 0 means the account predates this field (safe to allow).
+    let current_slot = clock.slot;
+    let acquired_slot = ctx.accounts.user_ownership.last_acquired_slot;
+    if acquired_slot > 0 {
+        require!(
+            current_slot >= acquired_slot + MIN_TOKEN_HOLD_SLOTS,
+            RwaError::FlashLoanVoteBlocked
+        );
+    }
 
     // Get raw token balance
     let raw_balance = ctx.accounts.user_ownership.shares_owned;

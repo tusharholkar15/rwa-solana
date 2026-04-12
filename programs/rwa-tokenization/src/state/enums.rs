@@ -164,3 +164,11 @@ pub const ESCROW_DISPUTE_WINDOW: i64 = 48 * 60 * 60;
 
 /// Minimum token ownership to create a governance proposal (1% of supply)
 pub const MIN_PROPOSAL_OWNERSHIP_BPS: u16 = 100;
+
+/// Governance execution timelock — proposer must wait 24h after vote_end before executing
+/// Gives the guardian / admin time to veto malicious proposals
+pub const GOVERNANCE_TIMELOCK_SECS: i64 = 24 * 60 * 60; // 24 hours
+
+/// Flash-loan guard: tokens must have been held for at least this many slots before voting
+/// At ~400ms/slot, 150 slots ≈ 60 seconds — makes same-TX token acquisition attacks unprofitable
+pub const MIN_TOKEN_HOLD_SLOTS: u64 = 150;

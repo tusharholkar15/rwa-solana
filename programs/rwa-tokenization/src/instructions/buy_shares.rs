@@ -110,6 +110,8 @@ pub fn handler(ctx: Context<BuyShares>, amount: u64) -> Result<()> {
         .checked_add(total_cost)
         .ok_or(RwaError::ArithmeticOverflow)?;
     ownership.last_transaction_at = clock.unix_timestamp;
+    // Record slot for flash-loan guard (cast_vote checks this)
+    ownership.last_acquired_slot = clock.slot;
     ownership.bump = ctx.bumps.user_ownership;
 
     emit!(crate::AssetBought {

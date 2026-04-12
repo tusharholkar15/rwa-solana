@@ -22,7 +22,12 @@ async function runLoadTest() {
 
   // 0. Setup: Create KYC-approved users for the test wallets
   await connectDatabase();
-  const wallets = Array.from({ length: CONCURRENT_USERS }, () => `TestWalletAddr11111111111111111${uuidv4().substring(0, 8)}`);
+  // Valid Base58 test wallet 32-44 chars (strict Base58 char set)
+  const b58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+  const runId = Date.now().toString().replace(/0/g, '2');
+  const wallets = Array.from({ length: CONCURRENT_USERS }, (_, i) => {
+    return runId + '111111111111111111' + b58[i];
+  });
   
   console.log('👤 Seeding KYC-approved test users...');
   await User.insertMany(wallets.map(w => ({
@@ -42,9 +47,6 @@ async function runLoadTest() {
     return;
   }
 
-  // 2. Already generated wallets above
-
-
   // 3. Execution Function
   const executeUserTrades = async (wallet) => {
     for (let i = 0; i < TRADES_PER_USER; i++) {
@@ -52,7 +54,7 @@ async function runLoadTest() {
       try {
         await axios.post(`${API_URL}/${type}`, {
           assetId,
-          shares: 0.1, // Fractional shares
+          shares: 1, // Integer shares
           walletAddress: wallet
         });
         successCount++;

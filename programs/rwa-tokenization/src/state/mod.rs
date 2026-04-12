@@ -11,6 +11,7 @@ pub mod trade_order;
 pub mod treasury;
 pub mod user_ownership;
 pub mod verification_registry;
+pub mod verifier_registry;
 pub mod vote_record;
 pub mod whitelist;
 
@@ -27,5 +28,6 @@ pub use trade_order::*;
 pub use treasury::*;
 pub use user_ownership::*;
 pub use verification_registry::*;
+pub use verifier_registry::*;
 pub use vote_record::*;
 pub use whitelist::*;

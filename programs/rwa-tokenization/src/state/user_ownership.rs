@@ -29,6 +29,11 @@ pub struct UserOwnership {
     /// Unix timestamp of last transaction
     pub last_transaction_at: i64,
 
+    /// Slot number when tokens were last acquired (via buy or transfer).
+    /// Used as a flash-loan guard in governance voting — must be at least
+    /// MIN_TOKEN_HOLD_SLOTS before the current slot to be eligible to vote.
+    pub last_acquired_slot: u64,
+
     /// PDA bump seed
     pub bump: u8,
 }

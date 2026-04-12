@@ -44,6 +44,11 @@ function sanitizeInputs(req, res, next) {
   if (req.params && typeof req.params === "object") {
     req.params = stripDollarKeys(req.params);
   }
+  
+  if (req.query && typeof req.query.search === "string") {
+    req.query.search = escapeRegex(req.query.search);
+  }
+  
   next();
 }
 

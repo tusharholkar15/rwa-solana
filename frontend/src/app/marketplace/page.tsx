@@ -1,10 +1,10 @@
 'use client';
 
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { Grid } from 'react-window';
 import {
   Search,
-  Building2,
   ChevronDown,
   LayoutGrid,
   List,
@@ -12,11 +12,7 @@ import {
   ShieldCheck,
   Activity,
   Globe,
-  MapPin,
-  Users,
-  ArrowUpRight,
 } from 'lucide-react';
-import { Grid } from 'react-window';
 import { api } from '@/lib/api';
 import { ASSET_TYPES } from '@/lib/constants';
 import { useWindowSize } from '@/hooks/useWindowSize';
@@ -26,40 +22,56 @@ import MarketMap from '@/components/marketplace/MarketMap';
 import InstitutionalSkeleton from '@/components/marketplace/InstitutionalSkeleton';
 import { useRealtime } from '@/context/RealtimeContext';
 
-interface GridCellData {
+// ─── Types ──────────────────────────────────────────────────────────
+interface GridItemData {
   assets: any[];
   solPrice: number;
-  gridConfig: {
-    cols: number;
-    gutter: number;
-  };
+  cols: number;
+  gutter: number;
 }
 
 /**
- * Stable Cell component defined outside of the parent to prevent unmount/remount cycles.
- * react-window v2 handles internal memoization via cellProps diffing — no React.memo needed.
+ * Cell renderer for react-window v2 Grid.
+ * v2 passes { columnIndex, rowIndex, style } as props PLUS spreads all cellProps.
+ * Must be defined outside the parent component to avoid remounting on every render.
  */
-function GridCell({ columnIndex, rowIndex, style, assets, solPrice, gridConfig }: any) {
-  const assetIndex = rowIndex * gridConfig.cols + columnIndex;
+const GridCell = React.memo(function GridCell({
+  columnIndex,
+  rowIndex,
+  style,
+  assets,
+  solPrice,
+  cols,
+  gutter,
+}: {
+  columnIndex: number;
+  rowIndex: number;
+  style: React.CSSProperties;
+  assets: any[];
+  solPrice: number;
+  cols: number;
+  gutter: number;
+}) {
+  const assetIndex = rowIndex * cols + columnIndex;
   const asset = assets[assetIndex];
 
-  if (!asset) return null;
+  if (!asset) return <div style={style} />;
 
   return (
-    <div style={{
-      ...style,
-      paddingLeft: columnIndex === 0 ? 0 : gridConfig.gutter / 2,
-      paddingRight: columnIndex === gridConfig.cols - 1 ? 0 : gridConfig.gutter / 2,
-      paddingBottom: gridConfig.gutter,
-    }}>
-      <InstitutionalAssetCard 
-        asset={asset} 
-        solPrice={solPrice} 
-        index={assetIndex} 
-      />
+    <div
+      style={{
+        ...style,
+        paddingLeft:  columnIndex === 0       ? 0 : gutter / 2,
+        paddingRight: columnIndex === cols - 1 ? 0 : gutter / 2,
+        paddingBottom: gutter,
+      }}
+    >
+      <InstitutionalAssetCard asset={asset} solPrice={solPrice} index={assetIndex} />
     </div>
   );
-}
+});
+
+
 
 export default function MarketplacePage() {
   const [assets, setAssets] = useState<any[]>([]);
@@ -134,13 +146,27 @@ export default function MarketplacePage() {
     return result;
   }, [assets, search, riskFilter]);
 
+  // Grid config — colWidth drives FixedSizeGrid's columnWidth
   const GRID_CONFIG = useMemo(() => {
-    if (!windowWidth) return { cols: 1, width: 350, gutter: 16 };
-    const containerWidth = Math.min(windowWidth - 64, 1280); 
-    if (windowWidth >= 1024) return { cols: 3, width: containerWidth / 3, gutter: 32 };
-    if (windowWidth >= 768) return { cols: 2, width: containerWidth / 2, gutter: 24 };
-    return { cols: 1, width: containerWidth, gutter: 16 };
+    if (!windowWidth) return { cols: 1, colWidth: 350, gutter: 16 };
+    const containerWidth = Math.min(windowWidth - 64, 1280);
+    const gutter = windowWidth >= 1024 ? 32 : windowWidth >= 768 ? 24 : 16;
+    if (windowWidth >= 1024) return { cols: 3, colWidth: (containerWidth - gutter * 2) / 3, gutter };
+    if (windowWidth >= 768)  return { cols: 2, colWidth: (containerWidth - gutter) / 2, gutter };
+    return { cols: 1, colWidth: containerWidth, gutter };
   }, [windowWidth]);
+
+  // Memoized cellProps object — only recreates when data or config changes
+  const cellProps = useMemo<GridItemData>(
+    () => ({ assets: filteredAssets, solPrice, cols: GRID_CONFIG.cols, gutter: GRID_CONFIG.gutter }),
+    [filteredAssets, solPrice, GRID_CONFIG]
+  );
+
+  const GRID_ROW_HEIGHT = 580 + GRID_CONFIG.gutter;
+  const rowCount        = Math.ceil(filteredAssets.length / GRID_CONFIG.cols);
+  // Show at most 4 rows before scrolling; show all if fewer rows exist
+  const GRID_HEIGHT = Math.min(4 * GRID_ROW_HEIGHT, rowCount * GRID_ROW_HEIGHT);
+  const GRID_WIDTH  = Math.min(windowWidth || 1280, 1280);
 
 
   function handleSearch(e: React.FormEvent) {
@@ -300,21 +326,16 @@ export default function MarketplacePage() {
             {viewMode === 'map' ? (
               <MarketMap assets={filteredAssets} />
             ) : (
+              // react-window v2 Grid: cellComponent is a component reference;
+              // cellProps are spread into each cell as additional props.
               <Grid
                 columnCount={GRID_CONFIG.cols}
-                columnWidth={GRID_CONFIG.width}
-                rowCount={Math.ceil(filteredAssets.length / GRID_CONFIG.cols)}
-                rowHeight={580}
-                cellComponent={GridCell}
-                cellProps={{
-                  assets: filteredAssets,
-                  solPrice,
-                  gridConfig: GRID_CONFIG
-                }}
-                style={{
-                  height: 800,
-                  width: Math.min(windowWidth || 1200, 1280)
-                }}
+                columnWidth={GRID_CONFIG.colWidth + GRID_CONFIG.gutter}
+                rowCount={rowCount}
+                rowHeight={GRID_ROW_HEIGHT}
+                cellComponent={GridCell as any}
+                cellProps={cellProps as any}
+                style={{ height: GRID_HEIGHT, width: GRID_WIDTH }}
                 className="scrollbar-hide"
               />
             )}

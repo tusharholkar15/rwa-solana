@@ -197,4 +197,16 @@ pub enum RwaError {
     /// 6047 - Asset is currently paused
     #[msg("Asset is currently paused")]
     AssetPaused,
+
+    /// 6048 - Governance timelock has not yet elapsed
+    #[msg("Governance timelock has not expired — 24h must pass after vote_end")]
+    TimelockNotExpired,
+
+    /// 6049 - Vote blocked: tokens acquired too recently (flash-loan guard)
+    #[msg("Tokens must be held for at least MIN_TOKEN_HOLD_SLOTS slots before voting")]
+    FlashLoanVoteBlocked,
+
+    /// 6050 - Emergency pause active, action blocked
+    #[msg("Emergency pause is active — this action is blocked by platform veto")]
+    EmergencyPauseActive,
 }

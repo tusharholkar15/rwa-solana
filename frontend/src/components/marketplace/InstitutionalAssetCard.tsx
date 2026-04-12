@@ -45,6 +45,7 @@ const InstitutionalAssetCard = React.memo(
     
     const [livePrice, setLivePrice] = React.useState(asset.navPrice || asset.pricePerToken / 1e9);
     const [flash, setFlash] = React.useState<'up' | 'down' | null>(null);
+    const flashTimeoutRef = React.useRef<NodeJS.Timeout>();
 
     React.useEffect(() => {
       if (!socket || !asset._id) return;
@@ -54,9 +55,14 @@ const InstitutionalAssetCard = React.memo(
       const handleEvent = (payload: any) => {
         if (payload.type === 'PRICE_UPDATE' && payload.assetId === asset._id) {
           const newPrice = payload.data.navPrice;
-          setFlash(newPrice > livePrice ? 'up' : 'down');
-          setLivePrice(newPrice);
-          setTimeout(() => setFlash(null), 2000);
+          setLivePrice((prev: number) => {
+             setFlash(newPrice > prev ? 'up' : 'down');
+             
+             if (flashTimeoutRef.current) clearTimeout(flashTimeoutRef.current);
+             flashTimeoutRef.current = setTimeout(() => setFlash(null), 2000);
+             
+             return newPrice;
+          });
         }
       };
 
@@ -65,8 +71,9 @@ const InstitutionalAssetCard = React.memo(
       return () => {
         socket.emit('unsubscribe:asset', asset._id);
         socket.off('asset_event', handleEvent);
+        if (flashTimeoutRef.current) clearTimeout(flashTimeoutRef.current);
       };
-    }, [socket, asset._id, livePrice]);
+    }, [socket, asset._id]);
 
     // Move all derivations into useMemo for stability
     const stats = React.useMemo(() => {
@@ -200,8 +207,10 @@ const InstitutionalAssetCard = React.memo(
     );
   },
   (prev, next) => (
-    prev.asset._id === next.asset._id &&
-    prev.asset.availableSupply === next.asset.availableSupply &&
+    prev.asset?._id === next.asset?._id &&
+    prev.asset?.availableSupply === next.asset?.availableSupply &&
+    prev.asset?.navPrice === next.asset?.navPrice &&
+    prev.asset?.pricePerToken === next.asset?.pricePerToken &&
     Math.abs(prev.solPrice - next.solPrice) < 0.1
   )
 );

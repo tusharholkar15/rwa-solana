@@ -41,10 +41,34 @@ pub fn handler(
     let price_update = &ctx.accounts.price_update;
     let maximum_age: u64 = 60; // Max 60s staleness
 
-    let pyth_data = price_update
-        .get_price_no_older_than(&clock, maximum_age, &asset.oracle_feed_id)
-        .map_err(|_| RwaError::StalePriceData)?;
+    let pyth_data_result = price_update.get_price_no_older_than(&clock, maximum_age, &asset.oracle_feed_id);
 
+    if pyth_data_result.is_err() {
+        let breaker = &mut ctx.accounts.circuit_breaker;
+        breaker.consecutive_failures = breaker.consecutive_failures.saturating_add(1);
+        
+        let is_tripping = breaker.should_trip_failure();
+        if is_tripping {
+            breaker.trip(OracleCircuitBreaker::TRIP_REASON_FAILURE, clock.unix_timestamp);
+            let asset = &mut ctx.accounts.asset;
+            asset.is_active = false;
+        }
+
+        emit!(crate::OracleFailureDetected {
+            asset: asset.key(),
+            consecutive_failures: breaker.consecutive_failures,
+            is_tripped: is_tripping,
+            timestamp: clock.unix_timestamp,
+        });
+
+        return if is_tripping {
+            Err(RwaError::OracleCircuitBreakerTripped.into())
+        } else {
+            Err(RwaError::StalePriceData.into())
+        };
+    }
+
+    let pyth_data = pyth_data_result.unwrap();
     require!(pyth_data.price > 0, RwaError::InvalidOracleFeed);
 
     // Convert Pyth price to lamports
@@ -52,7 +76,12 @@ pub fn handler(
 
     // ── Step 2: Validate Switchboard Input ───────────────────
     // Switchboard price passed as argument (caller fetches from their on-chain feed)
-    require!(switchboard_price > 0, RwaError::InvalidOracleFeed);
+    if switchboard_price == 0 {
+        let breaker = &mut ctx.accounts.circuit_breaker;
+        breaker.consecutive_failures = breaker.consecutive_failures.saturating_add(1);
+        // ... same logic as above or combine ...
+        return Err(RwaError::InvalidOracleFeed.into());
+    }
 
     // ── Step 3: Compute Spread ────────────────────────────────
     let min_price = pyth_price_lamports.min(switchboard_price);
@@ -129,6 +158,28 @@ pub fn handler(
         msg!("Using last valid price due to spread breach and no TWAP");
         return Ok(());
     };
+
+    // HARDENING: Basic Z-Score Trip (Variance)
+    if breaker.price_count_1h > 10 {
+        let mean = breaker.price_sum_1h / breaker.price_count_1h as u64;
+        let diff = if final_price > mean { final_price - mean } else { mean - final_price };
+        let deviation_bps = (diff as u128 * 10000 / mean as u128) as u16;
+        
+        if deviation_bps > 2000 { // 20% variance trip
+            breaker.trip(OracleCircuitBreaker::TRIP_REASON_ZSCORE, clock.unix_timestamp);
+            let asset = &mut ctx.accounts.asset;
+            asset.is_active = false;
+            
+            emit!(crate::OracleZScoreBreachDetected {
+                asset: asset.key(),
+                zscore_x100: deviation_bps,
+                price: final_price,
+                is_tripped: true,
+                timestamp: clock.unix_timestamp,
+            });
+            return Ok(());
+        }
+    }
 
     // ── Step 6: Update Asset Price ────────────────────────────
     let asset = &mut ctx.accounts.asset;

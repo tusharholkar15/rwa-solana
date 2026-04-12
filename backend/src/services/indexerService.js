@@ -1,16 +1,16 @@
 /**
  * Blockchain Indexer Service (Hardened for Production)
- * Syncs on-chain events (mints, swaps, escrow settlements, rent, governance) 
- * to MongoDB `BlockchainEvent`.
- * Handles Helius webhooks, Redis deduplication, reorg handling, and live broadcast.
+ * Syncs on-chain events via Helius webhooks.
+ * Implements robust Anchor EventParser decoding, fault-tolerant fallback,
+ * Pino structured logging, and idempotent DB persistance.
  */
 
 const BlockchainEvent = require("../models/BlockchainEvent");
-const Asset = require("../models/Asset");
 const realtimeService = require("./realtimeService");
 const Redis = require("ioredis");
 const anchor = require("@coral-xyz/anchor");
 const idl = require("../config/idl.json");
+const logger = require("../config/logger");
 
 class IndexerService {
   constructor() {
@@ -22,8 +22,9 @@ class IndexerService {
       const PROGRAM_ID = new anchor.web3.PublicKey(process.env.PROGRAM_ID || "RwaP111111111111111111111111111111111111111");
       const coder = new anchor.BorshCoder(idl);
       this.eventParser = new anchor.EventParser(PROGRAM_ID, coder);
+      logger.info("[Indexer] Successfully initialized Anchor EventParser");
     } catch (e) {
-      console.warn("[Indexer] Failed to initialize Anchor EventParser:", e.message);
+      logger.error({ err: e }, "[Indexer] Failed to initialize Anchor EventParser");
     }
   }
 
@@ -39,10 +40,11 @@ class IndexerService {
    * Parse an incoming Helius Webhook payload representing a parsed Solana transaction.
    */
   async processWebhookPayload(payload) {
-    console.log(`[Indexer] Received ${payload.length} events from Helius`);
+    logger.info(`[Indexer] Received ${payload.length} events from webhook`);
     
-    for (const tx of payload) {
-      if (tx.err) continue; // Skip failed txs
+    // We do NOT block event loop, wrap processing in concurrent map if needed.
+    const promises = payload.map(async (tx) => {
+      if (tx.err) return; // Skip failed txs
 
       // Filter for our program ID
       const PROGRAM_ID = process.env.PROGRAM_ID || "RwaP111111111111111111111111111111111111111";
@@ -52,126 +54,148 @@ class IndexerService {
       if (isOurProgram) {
         await this.syncTransaction(tx);
       }
-    }
+    });
+
+    await Promise.allSettled(promises);
   }
 
   /**
-   * Sync a parsed transaction to our DB with Dedup
+   * Sync a parsed transaction to our DB with Idempotency
    */
   async syncTransaction(tx) {
+    const signature = tx.signature;
     try {
-      const signature = tx.signature;
-      
       // Fast path deduplication via Redis (24 hr TTL)
       if (this.redisClient && this.redisClient.status === 'ready') {
         const key = `indexed:${signature}`;
-        const existsInRedis = await this.redisClient.get(key);
-        if (existsInRedis) return; // Deduplicated
-        
-        // Optimistically set with NX (not exists) to prevent race conditions
         const setNX = await this.redisClient.set(key, '1', 'EX', 86400, 'NX');
         if (!setNX) return; // Another worker beat us to it
       }
 
-      // Fallback dedup in DB
-      let event = await BlockchainEvent.findOne({ signature });
-      if (event) {
-        // Reorg Handling: If event already exists but we got a new hook, check slot
-        if (event.slot && tx.slot && tx.slot < event.slot - 32) {
-           console.warn(`[Indexer] Potential Reorg detected for ${signature}. Existing Slot: ${event.slot}, New Slot: ${tx.slot}`);
-           // We might need to handle state rollback here in a mature system
-        }
-        return;
-      }
-
-      let eventType = "unknown";
+      let type = "UNKNOWN";
+      let legacyEventType = "unknown";
       let assetId = null;
+      let wallet = null;
       let amount = 0;
       let isBroadcastable = false;
       let parsedData = null;
+      let broadcastTopic = null;
       
-      // Parse with Anchor EventParser for high-fidelity telemetry
+      // Phase 1: Robust Event Parsing
       if (this.eventParser && tx.logs && tx.logs.length > 0) {
-        for (let event of this.eventParser.parseLogs(tx.logs)) {
-          console.log(`[Indexer] Decoded Anchor Event: ${event.name}`);
-          parsedData = event.data;
-          
-          if (event.name === "AssetBought") {
-             eventType = "mint";
-             isBroadcastable = true;
-             assetId = event.data.asset.toString();
-             amount = event.data.shares.toNumber();
-          } else if (event.name === "AssetSold") {
-             eventType = "burn";
-             isBroadcastable = true;
-             assetId = event.data.asset.toString();
-             amount = event.data.shares.toNumber();
-          } else if (event.name === "PriceUpdated") {
-             eventType = "price_updated";
-             isBroadcastable = true; // Could update UI sparklines
-             assetId = event.data.asset.toString();
-          } else if (event.name === "OracleBreachDetected") {
-             eventType = "oracle_breach";
-             isBroadcastable = true;
-             assetId = event.data.asset.toString();
-             
-             // Immediate critical broadcast
-             if (realtimeService) {
-                realtimeService.publish('system_alerts', {
-                   level: event.data.isTripped ? 'CRITICAL' : 'WARNING',
-                   message: `Oracle Spread Breach Detected: ${event.data.spreadBps} bps diverge`,
-                   assetId,
-                   timestamp: new Date()
-                });
-             }
+        try {
+          for (let event of this.eventParser.parseLogs(tx.logs)) {
+            logger.info({ eventName: event.name }, `[Indexer] Decoded Anchor Event`);
+            parsedData = { ...event.data };
+            
+            // Transform BN/Pubkeys to strings/numbers for DB & Broadcast
+            for (let key in parsedData) {
+              if (parsedData[key] && typeof parsedData[key].toString === 'function') {
+                if (parsedData[key].toNumber && !parsedData[key].isZero()) {
+                   try { parsedData[key] = parsedData[key].toNumber(); } catch(e) { parsedData[key] = parsedData[key].toString(); }
+                } else {
+                   parsedData[key] = parsedData[key].toString();
+                }
+              }
+            }
+
+            if (event.name === "AssetBought") {
+               type = "BUY";
+               legacyEventType = "shares_bought";
+               isBroadcastable = true;
+               broadcastTopic = "trade_events";
+               assetId = parsedData.asset;
+               wallet = parsedData.buyer;
+               amount = parsedData.shares || 0;
+            } else if (event.name === "AssetSold") {
+               type = "SELL";
+               legacyEventType = "shares_sold";
+               isBroadcastable = true;
+               broadcastTopic = "trade_events";
+               assetId = parsedData.asset;
+               wallet = parsedData.seller;
+               amount = parsedData.shares || 0;
+            } else if (event.name === "PriceUpdated") {
+               type = "PRICE";
+               legacyEventType = "price_updated";
+               isBroadcastable = true;
+               broadcastTopic = "price_update";
+               assetId = parsedData.asset;
+               amount = parsedData.price || 0; 
+            } else if (event.name === "OracleBreachDetected") {
+               type = "ORACLE_ALERT";
+               legacyEventType = "oracle_breach";
+               isBroadcastable = true;
+               broadcastTopic = "WARN_ORACLE_BREACH";
+               assetId = parsedData.asset;
+               amount = parsedData.spreadBps || 0; 
+            }
+            break; // Take the primary recognized event for single-record simplicity
           }
-          break; // Primary event handled
+        } catch(parseErr) {
+          logger.warn({ err: parseErr, signature }, "[Indexer] Anchor EventParser failed. Falling back.");
         }
       }
 
-      // Fallback instruction parser mapping for non-event legacy logs
-      if (eventType === "unknown") {
+      // Phase 2: Fallback Instruction Parsing (Backward Compatibility)
+      if (type === "UNKNOWN") {
         const logString = tx.logs?.join(" ") || "";
-        if (logString.includes("Instruction: BuyShares")) { eventType = "mint"; isBroadcastable = true; }
-        if (logString.includes("Instruction: SwapTokens")) { eventType = "swap"; isBroadcastable = true; }
-        if (logString.includes("Instruction: CreateEscrow")) { eventType = "escrow_created"; isBroadcastable = true; }
-        if (logString.includes("Instruction: SettleEscrow")) { eventType = "escrow_settled"; isBroadcastable = true; }
-        if (logString.includes("Instruction: CastVote")) { eventType = "vote_cast"; isBroadcastable = true; }
-        if (logString.includes("Instruction: CollectRent")) { eventType = "rent_collected"; isBroadcastable = true; }
-        if (logString.includes("Instruction: UpdatePrice")) { eventType = "price_updated"; }
+        if (logString.includes("Instruction: BuyShares")) { type = "BUY"; legacyEventType = "shares_bought"; }
+        else if (logString.includes("Instruction: SellShares")) { type = "SELL"; legacyEventType = "shares_sold"; }
+        else if (logString.includes("Instruction: UpdatePrice")) { type = "PRICE"; legacyEventType = "price_updated"; }
+        else if (logString.includes("Instruction: OracleBreachDetected")) { type = "ORACLE_ALERT"; legacyEventType = "oracle_breach"; }
+        else if (logString.includes("Instruction: SwapTokens")) { legacyEventType = "swap_executed"; }
       }
 
-      event = new BlockchainEvent({
-        signature,
-        eventType,
-        slot: tx.slot,
-        blockTime: new Date(tx.timestamp * 1000),
-        rawLogs: tx.logs,
-        status: "confirmed",
-        assetId: assetId, 
-      });
+      // Phase 3: Idempotent DB Write
+      const blockTime = new Date(tx.timestamp * 1000);
+      
+      const updatePayload = {
+        $setOnInsert: {
+          txSignature: signature,
+          slot: tx.slot,
+          blockTime,
+          type,
+          eventType: legacyEventType,
+          assetId,
+          assetAddress: assetId,
+          wallet,
+          primaryWallet: wallet,
+          amount,
+          metadata: parsedData,
+          data: parsedData,
+          rawLogs: tx.logs,
+          status: "confirmed"
+        }
+      };
 
-      await event.save();
-      console.log(`[Indexer] Synced tx: ${signature} (${eventType})`);
+      const result = await BlockchainEvent.updateOne({ txSignature: signature }, updatePayload, { upsert: true });
 
-      // Broadcast event globally to UI using RealtimeService
-      if (isBroadcastable && realtimeService && eventType !== "oracle_breach") {
-        realtimeService.publish('trade_events', {
-           type: 'CHAIN_EVENT',
-           signature,
-           eventType,
-           assetId,
-           amount,
-           timestamp: event.blockTime,
-           decodedData: parsedData ? JSON.stringify(parsedData) : null
-        });
+      if (result.upsertedCount > 0) {
+        logger.info({ signature, type, assetId }, `[Indexer] Synced successfully to DB`);
+
+        // Phase 4: Low-Latency Event Broadcast
+        if (isBroadcastable && realtimeService && broadcastTopic) {
+          const payload = {
+            type: type,
+            signature,
+            assetId,
+            wallet,
+            amount,
+            timestamp: blockTime,
+            metadata: parsedData
+          };
+          
+          realtimeService.publish(broadcastTopic, payload);
+        }
+      } else {
+        logger.debug({ signature }, `[Indexer] Event already exists in DB (Idempotent skip)`);
       }
 
     } catch (e) {
-      console.error(`[Indexer] Error syncing tx ${tx.signature}:`, e);
-      // Remove from redis cache if failed, so it can be retried
+      logger.error({ err: e, signature }, `[Indexer] Critical error syncing tx`);
       if (this.redisClient && this.redisClient.status === 'ready') {
-         try { await this.redisClient.del(`indexed:${tx.signature}`); } catch(er){}
+         try { await this.redisClient.del(`indexed:${signature}`); } catch(er){}
       }
     }
   }
