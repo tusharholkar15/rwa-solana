@@ -35,6 +35,12 @@ pub struct LiquidityPool {
     /// Pool administrator (can update fee, pause, withdraw protocol fees)
     pub authority: Pubkey,
 
+    /// Percentage of the swap fee routed to the DAO Treasury (in BPS, e.g. 2000 = 20% of fee)
+    pub dao_fee_share_bps: u16,
+
+    /// Cumulative SOL fees routed to the DAO Treasury (in lamports)
+    pub total_dao_fees_sol: u64,
+
     /// Whether the pool is currently active for swaps
     pub is_active: bool,
 

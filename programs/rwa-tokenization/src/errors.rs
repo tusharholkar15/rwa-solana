@@ -209,4 +209,32 @@ pub enum RwaError {
     /// 6050 - Emergency pause active, action blocked
     #[msg("Emergency pause is active — this action is blocked by platform veto")]
     EmergencyPauseActive,
+
+    /// 6051 - Cannot fund yield if there are no circulating shares
+    #[msg("No circulating shares available to receive yield")]
+    NoHoldersForYield,
+
+    /// 6052 - User has no pending yield to claim
+    #[msg("User has no pending yield to claim")]
+    NoYieldToClaim,
+
+    /// 6053 - Claim cooldown period is still active
+    #[msg("Claim cooldown active — must hold tokens longer before claiming")]
+    ClaimCooldownActive,
+
+    /// 6054 - Reinvestment target is not on the admin-approved whitelist
+    #[msg("Reinvestment strategy is not on the approved whitelist")]
+    StrategyNotWhitelisted,
+
+    /// 6055 - Treasury movement failed: insufficient circulating liquidity
+    #[msg("Insufficient treasury balance for reinvestment")]
+    InsufficientTreasury,
+
+    /// 6056 - Supermajority (66%) required for treasury capital moves
+    #[msg("Treasury reinvestment requires a 66% supermajority quorum")]
+    SupermajorityRequired,
+
+    /// 6057 - Reinvestment strategy is currently disabled
+    #[msg("Reinvestment strategy is currently disabled")]
+    StrategyDisabled,
 }

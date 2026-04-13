@@ -3,7 +3,7 @@ use pyth_solana_receiver_sdk::price_update::{get_feed_id_from_hex, PriceUpdateV2
 
 use crate::errors::RwaError;
 use crate::state::{
-    AssetAccount, OracleCircuitBreaker,
+    AssetAccount, OracleCircuitBreaker, PriceHistory,
     ORACLE_SOURCE_PYTH, ORACLE_SOURCE_SWITCHBOARD, ORACLE_SOURCE_TWAP,
 };
 
@@ -140,6 +140,31 @@ pub fn handler(
             is_tripped: false,
             timestamp: clock.unix_timestamp,
         });
+
+        // ── Step 4.1: Try On-Chain TWAP Fallback ──────────────────
+        let on_chain_twap = ctx.accounts.price_history.compute_twap(PriceHistory::MAX_ENTRIES);
+        if let Some(price) = on_chain_twap {
+            msg!("Using ON-CHAIN TWAP fallback: {} lamports", price);
+            
+            let asset = &mut ctx.accounts.asset;
+            asset.price_per_token = price;
+            asset.last_price_update = clock.unix_timestamp;
+            asset.oracle_source = ORACLE_SOURCE_TWAP;
+
+            // Recalculate variance with the TWAP price to ensure it's not too far off
+            if breaker.price_count_1h > 5 {
+                let mean = breaker.price_sum_1h / breaker.price_count_1h as u64;
+                let diff = if price > mean { price - mean } else { mean - price };
+                let deviation_bps = (diff as u128 * 10000 / mean as u128) as u16;
+                if deviation_bps > 1500 { // 15% variance trip for TWAP
+                     breaker.trip(OracleCircuitBreaker::TRIP_REASON_ZSCORE, clock.unix_timestamp);
+                     asset.is_active = false;
+                     return Ok(());
+                }
+            }
+
+            return Ok(());
+        }
     }
 
     // ── Step 5: Compute Final Price ───────────────────────────
@@ -187,9 +212,13 @@ pub fn handler(
     asset.last_price_update = clock.unix_timestamp;
     asset.oracle_source = oracle_source;
 
-    // ── Step 7: Record Success in Circuit Breaker ─────────────
+    // ── Step 7: Record Success in Circuit Breaker & History ───
     let breaker = &mut ctx.accounts.circuit_breaker;
-    breaker.record_success(final_price, clock.unix_timestamp);
+    breaker.record_success(final_price, clock.unix_timestamp, clock.slot);
+
+    // Push to on-chain ring buffer
+    let price_history = &mut ctx.accounts.price_history;
+    price_history.push(final_price, clock.unix_timestamp);
 
     emit!(crate::PriceUpdated {
         asset: asset.key(),
@@ -278,6 +307,14 @@ pub struct UpdatePrice<'info> {
 
     /// Pyth price update account
     pub price_update: Account<'info, PriceUpdateV2>,
+
+    /// PDA storing historical price points
+    #[account(
+        mut,
+        seeds = [PriceHistory::SEED_PREFIX, asset.key().as_ref()],
+        bump = price_history.bump,
+    )]
+    pub price_history: Account<'info, PriceHistory>,
 }
 
 #[derive(Accounts)]

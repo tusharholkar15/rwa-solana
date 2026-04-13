@@ -2,7 +2,8 @@ use anchor_lang::prelude::*;
 
 use crate::errors::RwaError;
 use crate::state::{
-    AssetAccount, GovernanceProposal, ProgramConfig, ProposalStatus, GOVERNANCE_TIMELOCK_SECS,
+    AssetAccount, GovernanceProposal, ProgramConfig, ProposalStatus, ProposalType, 
+    ReinvestmentWhitelist, GOVERNANCE_TIMELOCK_SECS, TreasuryVault
 };
 
 /// Execute a passed governance proposal.
@@ -50,10 +51,72 @@ pub fn handler(ctx: Context<ExecuteProposal>) -> Result<()> {
     );
 
     // ── Check Outcome ───────────────────────────────────────────
-    let passed = proposal.has_passed(asset.total_supply);
+    let passed = if proposal.proposal_type == ProposalType::TreasuryReinvestment {
+        // Institutional Hardening: Treasury moves require supermajority (66%)
+        proposal.quorum_met(asset.total_supply) && 
+        (proposal.votes_for as u128 * 100 > (proposal.votes_for + proposal.votes_against) as u128 * 66)
+    } else {
+        proposal.has_passed(asset.total_supply)
+    };
+
     let proposal = &mut ctx.accounts.proposal;
 
     if passed {
+        // Handle Treasury Reinvestment Side-Effects
+        if proposal.proposal_type == ProposalType::TreasuryReinvestment {
+            let target_account = proposal.target_account.ok_or(RwaError::Unauthorized)?;
+            let target_amount = proposal.target_amount.ok_or(RwaError::InvalidAmount)?;
+
+            // Load extra accounts from remaining_accounts
+            let treasury_info = ctx.remaining_accounts.get(0).ok_or(RwaError::Unauthorized)?;
+            let whitelist_info = ctx.remaining_accounts.get(1).ok_or(RwaError::Unauthorized)?;
+
+            // Verify Whitelist PDA
+            let (whitelist_pda, _bump) = Pubkey::find_program_address(
+                &[ReinvestmentWhitelist::SEED_PREFIX, target_account.as_ref()],
+                ctx.program_id
+            );
+            require_keys_eq!(whitelist_info.key(), whitelist_pda, RwaError::StrategyNotWhitelisted);
+            
+            let whitelist_data = Account::<ReinvestmentWhitelist>::try_from(whitelist_info)?;
+            require!(whitelist_data.is_active, RwaError::StrategyDisabled);
+
+            // Verify Treasury PDA
+            let (treasury_pda, bump) = Pubkey::find_program_address(
+                &[TreasuryVault::SEED_PREFIX, asset.key().as_ref()],
+                ctx.program_id
+            );
+            require_keys_eq!(treasury_info.key(), treasury_pda, RwaError::Unauthorized);
+            
+            let treasury_balance = **treasury_info.try_borrow_lamports()?;
+            require!(treasury_balance >= target_amount, RwaError::InsufficientTreasury);
+
+            // Perform PDA-signed transfer
+            let asset_key = asset.key();
+            let seeds = &[
+                TreasuryVault::SEED_PREFIX,
+                asset_key.as_ref(),
+                &[bump],
+            ];
+            let signer = &[&seeds[..]];
+
+            anchor_lang::solana_program::program::invoke_signed(
+                &anchor_lang::solana_program::system_instruction::transfer(
+                    &treasury_pda,
+                    &target_account,
+                    target_amount,
+                ),
+                &[
+                    treasury_info.to_account_info(),
+                    ctx.accounts.executor.to_account_info(), // Just for referencing
+                    ctx.accounts.system_program.to_account_info(),
+                ],
+                signer,
+            )?;
+
+            msg!("Treasury Reinvestment of {} lamports to {} EXECUTED", target_amount, target_account);
+        }
+
         proposal.status = ProposalStatus::Executed;
         proposal.executed_at = clock.unix_timestamp;
 

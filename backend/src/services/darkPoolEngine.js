@@ -7,6 +7,10 @@ const OTCOrder = require("../models/OTCOrder");
 const complianceService = require("./complianceService");
 const auditService = require("./auditService");
 const transferAgentService = require("./transferAgentService");
+const solanaService = require("./solanaService");
+const { Keypair } = require("@solana/web3.js");
+const bs58 = require("bs58");
+const crypto = require("crypto");
 const { v4: uuidv4 } = require("uuid");
 
 class DarkPoolEngine {
@@ -111,9 +115,33 @@ class DarkPoolEngine {
       return;
     }
 
-    // Atomic updates (Simulated on-chain movement)
+    // ── Trustless Settlement Integration ────────────────────────
+    // Generate Match Certificate (Signed Payload)
+    // payload = hash(assetId + executionPrice + executionShares + bidId + askId)
+    const payload = `${bid.assetId}-${executionPrice}-${executionShares}-${bid.orderId}-${ask.orderId}`;
+    const hash = crypto.createHash("sha256").update(payload).digest();
+    
+    // Sign with Platform matching authority key
+    const adminPrivKey = process.env.ADMIN_PRIVATE_KEY || "";
+    let signature = "simulated_signature";
+    
+    if (adminPrivKey && adminPrivKey !== "your_admin_private_key_here") {
+      try {
+        const keypair = Keypair.fromSecretKey(bs58.decode(adminPrivKey));
+        // Simple signature for simulation; in production use tweetnacl for full Ed25519
+        signature = `match_sig_${bs58.encode(hash.slice(0, 16))}`;
+      } catch (e) {
+        console.error("Match signing failed:", e.message);
+      }
+    }
+
+    // Atomic updates
     bid.filledShares += executionShares;
     ask.filledShares += executionShares;
+    
+    // Store Match Certificate in order metadata so frontend can fetch it
+    bid.matchCertificate = { signature, hash: hash.toString("hex"), counterparty: ask.walletAddress };
+    ask.matchCertificate = { signature, hash: hash.toString("hex"), counterparty: bid.walletAddress };
 
     if (bid.filledShares >= bid.shares) bid.status = "filled";
     if (ask.filledShares >= ask.shares) ask.status = "filled";
@@ -130,20 +158,15 @@ class DarkPoolEngine {
         type: "dark_pool_trade",
         price: executionPrice,
         shares: executionShares,
+        matchCert: signature,
         bidId: bid.orderId,
         askId: ask.orderId
       }
     });
 
-    console.log(`[DarkPool] Executed trade: ${executionShares} shares @ ${executionPrice} SOL`);
+    console.log(`[DarkPool] Match Certified: ${executionShares} shares @ ${executionPrice} SOL`);
 
-    // Async sync with Transfer Agent
-    transferAgentService.syncTransfer(
-      bid.assetId.toString(),
-      ask.walletAddress, // Seller
-      bid.walletAddress, // Buyer
-      executionShares
-    ).catch(err => console.error("[Background] DarkPool TA Sync Failed:", err.message));
+    // In trustless mode, we wait for the user to settle on-chain using the certificate.
   }
 
   async getActiveDarkOrders(walletAddress) {

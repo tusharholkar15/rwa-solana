@@ -9,11 +9,20 @@ const priceService = require("./priceService");
 const auditService = require("./auditService");
 
 const logger = require("../config/logger");
+const anchorClient = require("../config/anchorClient");
+const anchor = require("@coral-xyz/anchor");
+const { PublicKey } = require("@solana/web3.js");
 
 class OracleService {
   constructor() {
     this.heartbeatRun = false;
     this.TWAP_PERIOD_MS = 60 * 60 * 1000;
+    this.isSolanaConnected = false;
+    
+    // Initialize Solana on boot
+    anchorClient.initialize()
+      .then(() => { this.isSolanaConnected = true; })
+      .catch(() => { this.isSolanaConnected = false; });
   }
 
   async startHeartbeat(intervalMs = 15 * 60 * 1000) {
@@ -103,6 +112,52 @@ class OracleService {
         } else {
            finalPrice = valid.reduce((a, b) => a + b) / valid.length;
            activeProviders = ["Pyth", "Switchboard", "Z_SCORE_VALIDATED"];
+        }
+      }
+
+      // ── Solana On-Chain Sync ───────────────────────────────────────────────
+      if (this.isSolanaConnected && asset.onChainAddress) {
+        try {
+          const program = anchorClient.getProgram();
+          const assetPubkey = new PublicKey(asset.onChainAddress);
+          
+          // Derive PDAs
+          const [cbAddress] = PublicKey.findProgramAddressSync(
+            [Buffer.from("circuit_breaker"), assetPubkey.toBuffer()],
+            program.programId
+          );
+          const [historyAddress] = PublicKey.findProgramAddressSync(
+            [Buffer.from("price_history"), assetPubkey.toBuffer()],
+            program.programId
+          );
+
+          // Pyth Devnet Price Feed (Default to SOL/USD if not configured per asset)
+          // Feed: J83w4P9N k k k k k k k k k k k k k k k k k k 
+          // Actually we need the PriceUpdateV2 account. 
+          // On Devnet: 7UVim1guvfS7uR9v86KCHiVNm8asH677V6UFDzC2Q8Ym
+          const PYTH_PRICE_UPDATE_DEVNET = new PublicKey("7UVim1guvfS7uR9v86KCHiVNm8asH677V6UFDzC2Q8Ym");
+
+          logger.info({ assetId: asset._id, assetPubkey: asset.onChainAddress }, "[OracleService] Syncing price to Solana...");
+
+          const tx = await program.methods
+            .updatePrice(
+              new anchor.BN(Math.floor(sbPrice * 1e9)), // Switchboard simulation
+              new anchor.BN(Math.floor(finalPrice * 1e9)) // Local TWAP reference
+            )
+            .accounts({
+              authority: anchorClient.wallet.publicKey,
+              asset: assetPubkey,
+              circuitBreaker: cbAddress,
+              priceUpdate: PYTH_PRICE_UPDATE_DEVNET,
+              priceHistory: historyAddress,
+            })
+            .rpc();
+
+          logger.info({ tx, assetId: asset._id }, "[OracleService] Solana sync SUCCESS");
+          activeProviders.push("SOLANA_SYNCED");
+        } catch (solErr) {
+          logger.error({ err: solErr.message, assetId: asset._id }, "[OracleService] Solana sync FAILED");
+          activeProviders.push("SOLANA_SYNC_ERROR");
         }
       }
 

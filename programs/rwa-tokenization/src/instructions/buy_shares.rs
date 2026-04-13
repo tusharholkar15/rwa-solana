@@ -4,6 +4,7 @@ use anchor_spl::token::{self, Token, TokenAccount};
 
 use crate::errors::RwaError;
 use crate::state::{AssetAccount, TreasuryVault, UserOwnership, WhitelistEntry};
+use crate::instructions::fund_yield::YIELD_PRECISION;
 
 /// Buy fractional shares of a tokenized asset
 /// Transfers SOL from buyer to treasury, and SPL tokens from treasury to buyer
@@ -87,6 +88,32 @@ pub fn handler(ctx: Context<BuyShares>, amount: u64) -> Result<()> {
         .checked_add(total_cost)
         .ok_or(RwaError::ArithmeticOverflow)?;
 
+    // ── Yield Checkpointing ─────────────────────────────────────
+    // Realize current pending yield before share count changes
+    if ownership.shares_owned > 0 {
+        let total_acc_scaled = (ownership.shares_owned as u128)
+            .checked_mul(asset.accumulated_yield_per_share)
+            .ok_or(RwaError::ArithmeticOverflow)?;
+        
+        let accrued_scaled = total_acc_scaled
+            .checked_sub(ownership.yield_debt)
+            .ok_or(RwaError::ArithmeticOverflow)?;
+        
+        // Add lamport portion to unclaimed pool
+        ownership.unclaimed_yield_lamports = ownership.unclaimed_yield_lamports
+            .checked_add((accrued_scaled / YIELD_PRECISION) as u64)
+            .ok_or(RwaError::ArithmeticOverflow)?;
+        
+        // Retain the remainder in yield_debt to preserve precision
+        let remainder = accrued_scaled % YIELD_PRECISION;
+        // Logic: new_debt = (new_shares * acc) - remainder
+        // But we update shares below, so we'll do the final debt set after that.
+        // We'll store the remainder for now.
+        ctx.accounts.user_ownership.yield_debt = remainder; 
+    } else {
+        ctx.accounts.user_ownership.yield_debt = 0;
+    }
+
     // Update user ownership record
     let ownership = &mut ctx.accounts.user_ownership;
     if ownership.shares_owned == 0 {
@@ -104,6 +131,15 @@ pub fn handler(ctx: Context<BuyShares>, amount: u64) -> Result<()> {
     ownership.shares_owned = ownership
         .shares_owned
         .checked_add(amount)
+        .ok_or(RwaError::ArithmeticOverflow)?;
+
+    // Set Final Yield Debt for new balance
+    // new_debt = (new_shares * acc) - absorbed_remainder
+    let absorbed_remainder = ownership.yield_debt; // temporary storage from above
+    ownership.yield_debt = (ownership.shares_owned as u128)
+        .checked_mul(asset.accumulated_yield_per_share)
+        .ok_or(RwaError::ArithmeticOverflow)?
+        .checked_sub(absorbed_remainder)
         .ok_or(RwaError::ArithmeticOverflow)?;
     ownership.total_invested = ownership
         .total_invested

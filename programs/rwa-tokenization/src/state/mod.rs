@@ -14,6 +14,7 @@ pub mod verification_registry;
 pub mod verifier_registry;
 pub mod vote_record;
 pub mod whitelist;
+pub mod reinvestment_whitelist;
 
 pub use asset::*;
 pub use enums::*;
@@ -31,3 +32,4 @@ pub use verification_registry::*;
 pub use verifier_registry::*;
 pub use vote_record::*;
 pub use whitelist::*;
+pub use reinvestment_whitelist::*;

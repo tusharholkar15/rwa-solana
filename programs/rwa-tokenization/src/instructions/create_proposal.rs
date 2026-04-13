@@ -16,6 +16,8 @@ pub fn handler(
     description_hash: [u8; 32],
     voting_period_seconds: i64,
     quorum_bps: u16,
+    target_account: Option<Pubkey>,
+    target_amount: Option<u64>,
 ) -> Result<()> {
     let clock = Clock::get()?;
     let asset = &ctx.accounts.asset;
@@ -85,6 +87,8 @@ pub fn handler(
     proposal.votes_against = 0;
     proposal.votes_abstain = 0;
     proposal.status = ProposalStatus::Active;
+    proposal.target_account = target_account;
+    proposal.target_amount = target_amount;
     proposal.execution_hash = [0u8; 32];
     proposal.executed_at = 0;
     proposal.stake_amount = GovernanceProposal::PROPOSAL_STAKE;

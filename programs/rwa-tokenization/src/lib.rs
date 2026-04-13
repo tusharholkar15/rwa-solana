@@ -39,6 +39,21 @@ pub mod rwa_tokenization {
         )
     }
 
+    /// Initialize on-chain price history for an existing asset
+    pub fn initialize_price_history(ctx: Context<InitializePriceHistory>) -> Result<()> {
+        instructions::initialize_price_history::handler(ctx)
+    }
+
+    /// Fund the global yield pool for an asset (Scalable Distribution)
+    pub fn fund_yield(ctx: Context<FundYield>, amount: u64) -> Result<()> {
+        instructions::fund_yield::handler(ctx, amount)
+    }
+
+    /// Claim accrued yield from the global pool (Scalable Distribution)
+    pub fn claim_yield(ctx: Context<ClaimYield>) -> Result<()> {
+        instructions::claim_yield::handler(ctx)
+    }
+
     /// Whitelist a KYC-verified user for trading
     pub fn whitelist_user(ctx: Context<WhitelistUser>) -> Result<()> {
         instructions::whitelist_user::handler(ctx)
@@ -223,9 +238,11 @@ pub mod rwa_tokenization {
         description_hash: [u8; 32],
         voting_period_seconds: i64,
         quorum_bps: u16,
+        target_account: Option<Pubkey>,
+        target_amount: Option<u64>,
     ) -> Result<()> {
         instructions::create_proposal::handler(
-            ctx, proposal_type, title, description_hash, voting_period_seconds, quorum_bps,
+            ctx, proposal_type, title, description_hash, voting_period_seconds, quorum_bps, target_account, target_amount
         )
     }
 
@@ -242,6 +259,34 @@ pub mod rwa_tokenization {
     /// Execute a governance proposal (finalize voting + return stake)
     pub fn execute_proposal(ctx: Context<ExecuteProposal>) -> Result<()> {
         instructions::execute_proposal::handler(ctx)
+    }
+
+    /// Add a strategy to the reinvestment whitelist (Admin only)
+    pub fn add_to_reinvestment_whitelist(
+        ctx: Context<AddToReinvestmentWhitelist>,
+        name: String,
+        risk_level: u8,
+    ) -> Result<()> {
+        instructions::add_to_reinvestment_whitelist::handler(ctx, name, risk_level)
+    }
+
+    /// Perform an emergency capital recall from a strategy (Admin only)
+    pub fn emergency_recall(ctx: Context<EmergencyRecall>, amount: u64) -> Result<()> {
+        instructions::emergency_recall::handler(ctx, amount)
+    }
+
+    /// Set auto-compounding preferences for an asset holding
+    pub fn set_compounding_preference(
+        ctx: Context<SetCompoundingPreference>,
+        enabled: bool,
+        threshold: u64,
+    ) -> Result<()> {
+        instructions::set_compounding_preference::handler(ctx, enabled, threshold)
+    }
+
+    /// Automatically compound accrued SOL yield into tokens via the AMM
+    pub fn compound_yield(ctx: Context<CompoundYield>) -> Result<()> {
+        instructions::compound_yield::handler(ctx)
     }
 
     // ═══════════════════════════════════════════════════════

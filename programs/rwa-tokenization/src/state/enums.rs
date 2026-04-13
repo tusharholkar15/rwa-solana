@@ -57,6 +57,8 @@ pub enum ProposalType {
     GeneralVote,
     /// Emergency pause/unpause
     EmergencyAction,
+    /// Vote to deploy idle treasury funds into a yield strategy
+    TreasuryReinvestment,
 }
 
 /// Governance proposal status

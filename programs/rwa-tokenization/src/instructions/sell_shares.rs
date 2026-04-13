@@ -3,6 +3,7 @@ use anchor_spl::token::{self, Token, TokenAccount};
 
 use crate::errors::RwaError;
 use crate::state::{AssetAccount, TreasuryVault, UserOwnership, WhitelistEntry};
+use crate::instructions::fund_yield::YIELD_PRECISION;
 
 /// Sell fractional shares back to the treasury
 /// Burns SPL tokens from seller and returns SOL from treasury
@@ -65,12 +66,41 @@ pub fn handler(ctx: Context<SellShares>, amount: u64) -> Result<()> {
         .checked_add(amount)
         .ok_or(RwaError::ArithmeticOverflow)?;
 
+    // ── Yield Checkpointing ─────────────────────────────────────
+    // Realize current pending yield before share count changes
+    {
+        let total_acc_scaled = (ownership.shares_owned as u128)
+            .checked_mul(asset.accumulated_yield_per_share)
+            .ok_or(RwaError::ArithmeticOverflow)?;
+        
+        let accrued_scaled = total_acc_scaled
+            .checked_sub(ownership.yield_debt)
+            .ok_or(RwaError::ArithmeticOverflow)?;
+        
+        // Add lamport portion to unclaimed pool
+        ownership.unclaimed_yield_lamports = ownership.unclaimed_yield_lamports
+            .checked_add((accrued_scaled / YIELD_PRECISION) as u64)
+            .ok_or(RwaError::ArithmeticOverflow)?;
+        
+        // Retain the remainder in yield_debt
+        let remainder = accrued_scaled % YIELD_PRECISION;
+        ctx.accounts.user_ownership.yield_debt = remainder; 
+    }
+
     // Update user ownership
     let ownership = &mut ctx.accounts.user_ownership;
     ownership.shares_owned = ownership
         .shares_owned
         .checked_sub(amount)
         .ok_or(RwaError::ArithmeticOverflow)?;
+
+    // Set Final Yield Debt for new balance
+    ownership.yield_debt = (ownership.shares_owned as u128)
+        .checked_mul(asset.accumulated_yield_per_share)
+        .ok_or(RwaError::ArithmeticOverflow)?
+        .checked_sub(ownership.yield_debt) // subtract the remainder we stored above
+        .ok_or(RwaError::ArithmeticOverflow)?;
+
     ownership.last_transaction_at = clock.unix_timestamp;
 
     emit!(crate::AssetSold {

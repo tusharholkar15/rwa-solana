@@ -32,6 +32,8 @@ const rentRoutes = require("./routes/rent");
 const auditRoutes = require("./routes/audit");
 const darkpoolRoutes = require("./routes/darkpool");
 const webhookRoutes = require("./routes/webhooks");
+const yieldRoutes = require("./routes/yield");
+const regulatoryRoutes = require("./routes/regulatory");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -99,6 +101,8 @@ app.use("/api/lifecycle", lifecycleRoutes);
 app.use("/api/rent", rentRoutes);
 app.use("/api/audit", auditRoutes);
 app.use("/api/darkpool", darkpoolRoutes);
+app.use("/api/yield", yieldRoutes);
+app.use("/api/regulatory", regulatoryRoutes);
 
 // ─── Admin: Worker & Outbox Health ───────────────────────────────────
 const BackgroundTask = require("./models/BackgroundTask");

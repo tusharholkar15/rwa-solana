@@ -41,8 +41,11 @@ pub struct EscrowAccount {
     #[max_len(128)]
     pub dispute_reason: String,
 
-    /// Whether the escrow is currently being processed (mutex)
-    pub is_settling: bool,
+    /// Whether this is an institutional dark pool trade (requires match cert)
+    pub is_dark_pool: bool,
+
+    /// Hash of the match payload (Asset + Amount + Price) — verified on settlement
+    pub match_hash: [u8; 32],
 
     /// PDA bump seed
     pub bump: u8,

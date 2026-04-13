@@ -435,6 +435,55 @@ class ComplianceService {
   }
 
   /**
+   * Validate an AMM swap against institutional rules
+   */
+  async validateSwap({ userWallet, assetId, amount, isBuying }) {
+    const identity = await this.getIdentity(userWallet);
+    if (!identity) {
+      return { valid: false, reason: "Compliance identity not found. Please complete KYC." };
+    }
+
+    if (identity.isFrozen) {
+      return { valid: false, reason: "Your wallet is currently frozen by compliance." };
+    }
+
+    // Check AML Flags (Instant Block)
+    if (identity.amlFlags > 0) {
+      return { valid: false, reason: "Regulatory block: AML screening required." };
+    }
+
+    // In a production environment, we would fetch the Asset's on-chain min_compliance_tier here.
+    // Simulating with common rules:
+    const assetTierRequired = 2; // Default for institutional assets
+    
+    if (identity.complianceTier < assetTierRequired) {
+      return { 
+        valid: false, 
+        reason: `Institutional Asset: Minimum tier ${assetTierRequired} required. Your tier: ${identity.complianceTier}` 
+      };
+    }
+
+    // Check Investment Limits (only on buying)
+    if (isBuying && identity.investmentLimit > 0) {
+      if (amount > identity.investmentLimit) {
+        return { 
+          valid: false, 
+          reason: `Transaction exceeds your single-investment limit of ${identity.investmentLimit} lamports.` 
+        };
+      }
+
+      if (identity.totalInvested + amount > identity.aggregateLimit) {
+         return {
+           valid: false,
+           reason: "Transaction exceeds your aggregate investment limit. Portfolio rebalancing required."
+         };
+      }
+    }
+
+    return { valid: true };
+  }
+
+  /**
    * Link a child wallet to a master wallet
    */
   async linkSubAccount({ masterWallet, childWallet }) {

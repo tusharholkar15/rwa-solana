@@ -1,28 +1,124 @@
 {
   "version": "0.1.0",
   "name": "rwa_tokenization",
-  "instructions": [],
+  "instructions": [
+    {
+      "name": "initialize_asset",
+      "accounts": [
+        { "name": "authority", "isMut": true, "isSigner": true },
+        { "name": "asset", "isMut": true, "isSigner": false },
+        { "name": "mint", "isMut": true, "isSigner": true },
+        { "name": "treasury", "isMut": true, "isSigner": false },
+        { "name": "treasuryTokenAccount", "isMut": true, "isSigner": false },
+        { "name": "priceHistory", "isMut": true, "isSigner": false },
+        { "name": "tokenProgram", "isMut": false, "isSigner": false },
+        { "name": "systemProgram", "isMut": false, "isSigner": false },
+        { "name": "rent", "isMut": false, "isSigner": false }
+      ],
+      "args": [
+        { "name": "name", "type": "string" },
+        { "name": "symbol", "type": "string" },
+        { "name": "uri", "type": "string" },
+        { "name": "totalSupply", "type": "u64" },
+        { "name": "pricePerToken", "type": "u64" },
+        { "name": "annualYieldBps", "type": "u16" }
+      ]
+    },
+    {
+      "name": "initialize_price_history",
+      "accounts": [
+        { "name": "authority", "isMut": true, "isSigner": true },
+        { "name": "asset", "isMut": false, "isSigner": false },
+        { "name": "priceHistory", "isMut": true, "isSigner": false },
+        { "name": "systemProgram", "isMut": false, "isSigner": false }
+      ],
+      "args": []
+    },
+    {
+      "name": "update_price",
+      "accounts": [
+        { "name": "authority", "isMut": false, "isSigner": true },
+        { "name": "asset", "isMut": true, "isSigner": false },
+        { "name": "circuitBreaker", "isMut": true, "isSigner": false },
+        { "name": "priceUpdate", "isMut": false, "isSigner": false },
+        { "name": "priceHistory", "isMut": true, "isSigner": false }
+      ],
+      "args": [
+        { "name": "switchboardPrice", "type": "u64" },
+        { "name": "twapPrice", "type": "u64" }
+      ]
+    },
+    {
+      "name": "fund_yield",
+      "accounts": [
+        { "name": "authority", "isMut": true, "isSigner": true },
+        { "name": "asset", "isMut": true, "isSigner": false },
+        { "name": "treasury", "isMut": true, "isSigner": false },
+        { "name": "systemProgram", "isMut": false, "isSigner": false }
+      ],
+      "args": [
+        { "name": "amount", "type": "u64" }
+      ]
+    },
+    {
+      "name": "claim_yield",
+      "accounts": [
+        { "name": "holder", "isMut": true, "isSigner": true },
+        { "name": "asset", "isMut": false, "isSigner": false },
+        { "name": "treasury", "isMut": true, "isSigner": false },
+        { "name": "userOwnership", "isMut": true, "isSigner": false },
+        { "name": "systemProgram", "isMut": false, "isSigner": false }
+      ],
+      "args": []
+    }
+  ],
+  "accounts": [
+    {
+      "name": "AssetAccount",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          { "name": "authority", "type": "publicKey" },
+          { "name": "name", "type": "string" },
+          { "name": "pricePerToken", "type": "u64" },
+          { "name": "availableSupply", "type": "u64" },
+          { "name": "totalSupply", "type": "u64" },
+          { "name": "accumulatedYieldPerShare", "type": "u128" },
+          { "name": "bump", "type": "u8" }
+        ]
+      }
+    },
+    {
+      "name": "UserOwnership",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          { "name": "owner", "type": "publicKey" },
+          { "name": "asset", "type": "publicKey" },
+          { "name": "sharesOwned", "type": "u64" },
+          { "name": "yieldDebt", "type": "u128" },
+          { "name": "unclaimedYieldLamports", "type": "u64" },
+          { "name": "lastAcquiredSlot", "type": "u64" },
+          { "name": "bump", "type": "u8" }
+        ]
+      }
+    },
+    {
+      "name": "PriceHistory",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          { "name": "asset", "type": "publicKey" },
+          { "name": "prices", "type": { "array": ["u64", 48] } },
+          { "name": "timestamps", "type": { "array": ["i64", 48] } },
+          { "name": "head", "type": "u8" },
+          { "name": "count", "type": "u8" },
+          { "name": "bump", "type": "u8" }
+        ]
+      }
+    }
+  ],
   "events": [
-    {
-      "name": "AssetBought",
-      "fields": [
-        { "name": "asset", "type": "publicKey", "index": false },
-        { "name": "buyer", "type": "publicKey", "index": false },
-        { "name": "shares", "type": "u64", "index": false },
-        { "name": "totalCost", "type": "u64", "index": false },
-        { "name": "timestamp", "type": "i64", "index": false }
-      ]
-    },
-    {
-      "name": "AssetSold",
-      "fields": [
-        { "name": "asset", "type": "publicKey", "index": false },
-        { "name": "seller", "type": "publicKey", "index": false },
-        { "name": "shares", "type": "u64", "index": false },
-        { "name": "totalProceeds", "type": "u64", "index": false },
-        { "name": "timestamp", "type": "i64", "index": false }
-      ]
-    },
     {
       "name": "PriceUpdated",
       "fields": [
@@ -31,17 +127,6 @@
         { "name": "oracleSource", "type": "u8", "index": false },
         { "name": "timestamp", "type": "i64", "index": false }
       ]
-    },
-    {
-      "name": "OracleBreachDetected",
-      "fields": [
-        { "name": "asset", "type": "publicKey", "index": false },
-        { "name": "spreadBps", "type": "u16", "index": false },
-        { "name": "consecutiveBreaches", "type": "u8", "index": false },
-        { "name": "isTripped", "type": "bool", "index": false },
-        { "name": "timestamp", "type": "i64", "index": false }
-      ]
     }
-  ],
-  "types": []
+  ]
 }

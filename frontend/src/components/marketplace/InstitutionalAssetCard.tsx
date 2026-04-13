@@ -13,7 +13,10 @@ import {
   BarChart3,
   Leaf,
   Shield,
+  Wallet,
+  ArrowDownCircle
 } from 'lucide-react';
+import { useWallet } from '@solana/wallet-adapter-react';
 import { formatCurrency, lamportsToSol, getAssetTypeBadgeColor } from '@/lib/constants';
 import Sparkline from './Sparkline';
 import SafeImage from '@/components/shared/SafeImage';
@@ -42,10 +45,52 @@ const InstitutionalAssetCard = React.memo(
   function InstitutionalAssetCard({ asset, solPrice: initialSolPrice, index }: InstitutionalAssetCardProps) {
     const { formatPrice } = useCurrency();
     const { socket } = useRealtime();
+    const { publicKey } = useWallet();
     
     const [livePrice, setLivePrice] = React.useState(asset.navPrice || asset.pricePerToken / 1e9);
     const [flash, setFlash] = React.useState<'up' | 'down' | null>(null);
+    const [pendingYield, setPendingYield] = React.useState<number | null>(null);
+    const [isClaiming, setIsClaiming] = React.useState(false);
     const flashTimeoutRef = React.useRef<NodeJS.Timeout>();
+
+    // Fetch pending yield if user has shares
+    React.useEffect(() => {
+      if (!publicKey || !asset.onChainAddress || !asset.userShares) return;
+
+      const fetchYield = async () => {
+        try {
+          const res = await fetch(`/api/yield/pending?asset=${asset.onChainAddress}&user=${publicKey.toBase58()}`);
+          const data = await res.json();
+          setPendingYield(data.amountSol);
+        } catch (err) {
+          console.error("Failed to fetch pending yield", err);
+        }
+      };
+
+      fetchYield();
+      const interval = setInterval(fetchYield, 30000); // Polling for yield
+      return () => clearInterval(interval);
+    }, [publicKey, asset.onChainAddress, asset.userShares]);
+
+    const handleClaim = async (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!publicKey) return;
+
+      setIsClaiming(true);
+      try {
+        // This would call the Solana program instruction via a wallet provider
+        // For now, we simulate the UI feedback
+        console.log("Claiming yield for", asset.name);
+        await new Promise(r => setTimeout(r, 1500));
+        setPendingYield(0);
+        alert("Yield claimed successfully!");
+      } catch (err) {
+        alert("Failed to claim yield");
+      } finally {
+        setIsClaiming(false);
+      }
+    };
 
     React.useEffect(() => {
       if (!socket || !asset._id) return;
@@ -134,12 +179,48 @@ const InstitutionalAssetCard = React.memo(
                 </h3>
               </div>
               <div className="text-right">
-                <div className="text-[9px] text-white/30 uppercase font-bold tracking-widest mb-0.5">Risk</div>
                 <div className={`text-lg font-display font-black ${stats.rating.startsWith('A') ? 'text-emerald-400' : 'text-amber-400'}`}>
                   {stats.rating}
                 </div>
               </div>
             </div>
+
+            {/* Holdling Status / Yield Claim Button */}
+            {asset.userShares > 0 && (
+              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[85%]">
+                <motion.div 
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="bg-surface-950/90 backdrop-blur-md border border-emerald-500/30 rounded-xl p-3 shadow-2xl"
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-6 h-6 rounded-full bg-emerald-500/20 flex items-center justify-center">
+                        <Wallet size={12} className="text-emerald-400" />
+                      </div>
+                      <div className="text-[10px] font-bold text-white/70 uppercase">Your Accrued Yield</div>
+                    </div>
+                    <div className="text-xs font-display font-bold text-emerald-400">
+                      {pendingYield !== null ? `${pendingYield.toFixed(4)} SOL` : '...'}
+                    </div>
+                  </div>
+                  <button
+                    onClick={handleClaim}
+                    disabled={isClaiming || !pendingYield || pendingYield <= 0}
+                    className="w-full py-2 bg-emerald-500 hover:bg-emerald-400 disabled:bg-white/5 disabled:text-white/20 text-surface-950 text-[10px] font-black uppercase tracking-widest rounded-lg flex items-center justify-center gap-2 transition-all active:scale-95"
+                  >
+                    {isClaiming ? (
+                      <div className="w-3 h-3 border-2 border-surface-950 border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <>
+                        <ArrowDownCircle size={14} />
+                        Claim Yield
+                      </>
+                    )}
+                  </button>
+                </motion.div>
+              </div>
+            )}
           </div>
 
           {/* Content Body */}

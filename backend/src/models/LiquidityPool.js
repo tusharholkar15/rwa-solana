@@ -38,6 +38,14 @@ const liquidityPoolSchema = new mongoose.Schema(
       type: Number,
       default: 0.003,
     },
+    daoFeeShareBps: {
+      type: Number,
+      default: 2000, // 20% by default for institutional assets
+    },
+    totalDaoFeesSol: {
+      type: Number,
+      default: 0,
+    },
     volume24h: {
       type: Number,
       default: 0,

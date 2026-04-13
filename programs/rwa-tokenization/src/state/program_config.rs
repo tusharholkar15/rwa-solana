@@ -26,6 +26,15 @@ pub struct ProgramConfig {
     /// Treasury address where protocol fees are collected
     pub fee_treasury: Pubkey,
 
+    /// Public key authorized to sign Dark Pool match certificates
+    pub dark_pool_matching_authority: Pubkey,
+
+    /// Max slippage allowed for auto-compounding swaps (BPS, e.g. 50 = 0.5%)
+    pub compounding_slippage_bps: u16,
+
+    /// Fee paid to the 'harvester' account for triggering a compound (BPS, e.g. 100 = 1%)
+    pub harvesting_fee_bps: u16,
+
     /// Maximum oracle price staleness allowed (in seconds)
     pub max_oracle_staleness: u64,
 

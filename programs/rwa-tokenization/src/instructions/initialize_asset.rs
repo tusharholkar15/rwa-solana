@@ -2,7 +2,7 @@ use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
 
 use crate::errors::RwaError;
-use crate::state::{AssetAccount, TreasuryVault};
+use crate::state::{AssetAccount, TreasuryVault, PriceHistory};
 
 /// Initialize a new tokenized real-world asset
 /// Creates the asset PDA, SPL token mint, treasury vault, and treasury token account
@@ -52,6 +52,13 @@ pub fn handler(
     treasury.total_withdrawn = 0;
     treasury.available_for_yield = 0;
     treasury.bump = ctx.bumps.treasury;
+
+    // Initialize the price history
+    let price_history = &mut ctx.accounts.price_history;
+    price_history.asset = asset.key();
+    price_history.head = 0;
+    price_history.count = 0;
+    price_history.bump = ctx.bumps.price_history;
 
     // Mint the total supply to the treasury token account
     let asset_key = ctx.accounts.asset.key();
@@ -131,6 +138,16 @@ pub struct InitializeAsset<'info> {
         token::authority = treasury,
     )]
     pub treasury_token_account: Account<'info, TokenAccount>,
+
+    /// PDA to store historical price points for TWAP fallback
+    #[account(
+        init,
+        payer = authority,
+        space = 8 + PriceHistory::INIT_SPACE,
+        seeds = [PriceHistory::SEED_PREFIX, asset.key().as_ref()],
+        bump
+    )]
+    pub price_history: Account<'info, PriceHistory>,
 
     /// Standard programs
     pub token_program: Program<'info, Token>,

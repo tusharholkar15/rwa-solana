@@ -102,6 +102,13 @@ pub struct AssetAccount {
 
     /// Version number for forward-compatible migration
     pub version: u8,
+
+    /// ═══════════════════════════════════════════════════════
+    /// YIELD V2 — Scalable Distribution
+    /// ═══════════════════════════════════════════════════════
+
+    /// Cumulative yield per token (lamports * 10^12)
+    pub accumulated_yield_per_share: u128,
 }
 
 impl AssetAccount {

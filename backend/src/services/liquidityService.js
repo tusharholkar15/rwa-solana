@@ -46,6 +46,19 @@ class LiquidityService {
     const pool = await LiquidityPool.findOne({ poolId });
     if (!pool) throw new Error("Pool not found");
 
+    // ── Institutional Compliance Hook ──────────────────────────
+    const { validateSwap } = require("./complianceService");
+    const compliance = await validateSwap({
+      userWallet: walletAddress,
+      assetId: pool.assetId,
+      amount,
+      isBuying: direction === "buy",
+    });
+
+    if (!compliance.valid) {
+      throw new Error(`Compliance Block: ${compliance.reason}`);
+    }
+
     let tokensOut, solOut, fee, priceImpact, effectivePrice;
 
     if (direction === "buy") {

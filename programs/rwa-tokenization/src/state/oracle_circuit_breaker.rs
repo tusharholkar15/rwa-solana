@@ -21,6 +21,9 @@ pub struct OracleCircuitBreaker {
     /// Unix timestamp of the last successful price update
     pub last_valid_update_at: i64,
 
+    /// Solana slot of the last successful price update
+    pub last_update_slot: u64,
+
     /// Running count of consecutive oracle spread breaches
     /// Automatically trips breaker when >= BREAKER_THRESHOLD
     pub consecutive_spread_breaches: u8,
@@ -71,6 +74,9 @@ impl OracleCircuitBreaker {
     /// Z-score threshold * 100 (2.0 standard deviations = 200)
     pub const MAX_ZSCORE_X100: u16 = 200;
 
+    /// Maximum slot drift allowed for a "fresh" oracle update (150 slots ~= 1 min)
+    pub const MAX_SLOT_DRIFT: u64 = 150;
+
     /// Trip reason codes
     pub const TRIP_REASON_SPREAD: u8 = 1;
     pub const TRIP_REASON_FAILURE: u8 = 2;
@@ -99,11 +105,12 @@ impl OracleCircuitBreaker {
     }
 
     /// Record a successful oracle update (resets failure/breach counters)
-    pub fn record_success(&mut self, price: u64, timestamp: i64) {
+    pub fn record_success(&mut self, price: u64, timestamp: i64, current_slot: u64) {
         self.consecutive_failures = 0;
         self.consecutive_spread_breaches = 0;
         self.last_valid_price = price;
         self.last_valid_update_at = timestamp;
+        self.last_update_slot = current_slot;
         // Update rolling price window
         self.price_sum_1h = self.price_sum_1h.saturating_add(price);
         self.price_count_1h = self.price_count_1h.saturating_add(1);

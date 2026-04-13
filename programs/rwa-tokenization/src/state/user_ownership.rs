@@ -36,6 +36,22 @@ pub struct UserOwnership {
 
     /// PDA bump seed
     pub bump: u8,
+
+    /// ═══════════════════════════════════════════════════════
+    /// YIELD V2 — Scalable Distribution
+    /// ═══════════════════════════════════════════════════════
+
+    /// Amount of yield NOT claimable by the user (lamports * 10^12)
+    pub yield_debt: u128,
+
+    /// Yield realized during trade events but not yet withdrawn (in lamports)
+    pub unclaimed_yield_lamports: u64,
+
+    /// Whether the user wants their yield automatically reinvested into shares
+    pub auto_compound_enabled: bool,
+
+    /// Minimum SOL (lamports) accrued before auto-compounding is triggered
+    pub min_compound_threshold: u64,
 }
 
 impl UserOwnership {

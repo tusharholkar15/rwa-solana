@@ -48,8 +48,13 @@ pub struct GovernanceProposal {
     /// Current proposal status
     pub status: ProposalStatus,
 
+    /// Optional target account for treasury moves or parameter changes
+    pub target_account: Option<Pubkey>,
+
+    /// Optional target amount for treasury moves
+    pub target_amount: Option<u64>,
+
     /// SHA-256 hash of the on-chain action to execute if passed
-    /// e.g., hash of the instruction data for updating yield BPS
     pub execution_hash: [u8; 32],
 
     /// Unix timestamp when the proposal was executed (0 = not yet)

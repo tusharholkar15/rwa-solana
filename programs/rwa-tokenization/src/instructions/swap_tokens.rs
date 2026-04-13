@@ -3,7 +3,10 @@ use anchor_lang::system_program;
 use anchor_spl::token::{self, Token, TokenAccount};
 
 use crate::errors::RwaError;
-use crate::state::{AssetAccount, LiquidityPool, OracleCircuitBreaker, WhitelistEntry, MAX_SWAP_POOL_BPS};
+use crate::state::{
+    AssetAccount, LiquidityPool, OracleCircuitBreaker, ProgramConfig, 
+    TreasuryVault, UserOwnership, WhitelistEntry, MAX_SWAP_POOL_BPS
+};
 
 /// Execute an AMM swap — token↔SOL using constant-product formula
 /// Includes slippage protection and anti-whale guard.
@@ -28,11 +31,32 @@ pub fn handler(
         RwaError::OracleCircuitBreakerTripped
     );
 
-    // Validate whitelist
-    let whitelist = &ctx.accounts.user_whitelist;
+    // Validate whitelist & Compliance Tier
+    let whitelist = &mut ctx.accounts.user_whitelist;
+    let asset = &ctx.accounts.asset;
+    
+    // 1. Basic Validity (KYC & AML)
     require!(
         whitelist.is_valid(clock.unix_timestamp),
         RwaError::NotWhitelisted
+    );
+
+    // 2. Tier Check (Asset-specific requirements)
+    require!(
+        whitelist.meets_tier(asset.min_compliance_tier),
+        RwaError::InsufficientTier
+    );
+
+    // 3. Jurisdiction Check
+    require!(
+        asset.is_jurisdiction_allowed(whitelist.jurisdiction as u8),
+        RwaError::JurisdictionBlocked
+    );
+
+    // 4. Investment Limit Check
+    require!(
+        whitelist.is_within_limit(amount_in),
+        RwaError::InvestmentLimitExceeded
     );
 
     // Anti-whale: single swap cannot exceed MAX_SWAP_POOL_BPS of relevant reserve
@@ -100,6 +124,8 @@ pub fn handler(
             .user
             .to_account_info()
             .try_borrow_mut_lamports()? += amount_out;
+
+        // 3. Handle DAO Fee Routing (if SOL is out, fee was in tokens — for now we focus on SOL routing)
     } else {
         // User sends SOL → receives tokens
         // 1. Transfer SOL from user to pool
@@ -114,7 +140,25 @@ pub fn handler(
             amount_in,
         )?;
 
-        // 2. Transfer tokens from pool to user
+        // 2. Route Fee to DAO Treasury if present
+        let pool_data = &ctx.accounts.pool;
+        if pool_data.dao_fee_share_bps > 0 {
+            let dao_fee = (fee_amount as u128)
+                .checked_mul(pool_data.dao_fee_share_bps as u128)
+                .ok_or(RwaError::ArithmeticOverflow)?
+                .checked_div(10000)
+                .ok_or(RwaError::ArithmeticOverflow)? as u64;
+
+            if dao_fee > 0 {
+                **ctx.accounts.pool.to_account_info().try_borrow_mut_lamports()? -= dao_fee;
+                **ctx.accounts.dao_treasury.to_account_info().try_borrow_mut_lamports()? += dao_fee;
+                
+                let pool_mut = &mut ctx.accounts.pool;
+                pool_mut.total_dao_fees_sol = pool_mut.total_dao_fees_sol.checked_add(dao_fee).unwrap();
+            }
+        }
+
+        // 3. Transfer tokens from pool to user
         token::transfer(
             CpiContext::new_with_signer(
                 ctx.accounts.token_program.to_account_info(),
@@ -129,41 +173,49 @@ pub fn handler(
         )?;
     }
 
-    // Update pool reserves
-    let pool = &mut ctx.accounts.pool;
-    if is_token_to_sol {
-        pool.token_reserve = pool
-            .token_reserve
-            .checked_add(amount_in)
-            .ok_or(RwaError::ArithmeticOverflow)?;
-        pool.sol_reserve = pool
-            .sol_reserve
-            .checked_sub(amount_out)
-            .ok_or(RwaError::ArithmeticOverflow)?;
-        pool.collected_fees_token = pool
-            .collected_fees_token
-            .checked_add(fee_amount)
-            .ok_or(RwaError::ArithmeticOverflow)?;
-    } else {
-        pool.sol_reserve = pool
-            .sol_reserve
-            .checked_add(amount_in)
-            .ok_or(RwaError::ArithmeticOverflow)?;
-        pool.token_reserve = pool
-            .token_reserve
-            .checked_sub(amount_out)
-            .ok_or(RwaError::ArithmeticOverflow)?;
-        pool.collected_fees_sol = pool
-            .collected_fees_sol
-            .checked_add(fee_amount)
-            .ok_or(RwaError::ArithmeticOverflow)?;
     }
+    
+    // ── Step 8: Price Impact Guard ────────────────────────────
+    // Calculate price movement: |P_new - P_old| / P_old
+    // We utilize the Constant Product Formula property: P = y / x
+    // To avoid floating point, we use: |y'/x' - y/x| <= 0.03 * y/x
+    // Which simplifies to: |y'x - yx'| <= 0.03 * yx
+    let old_sol = if is_token_to_sol { pool.sol_reserve + amount_out } else { pool.sol_reserve - amount_in };
+    let old_token = if is_token_to_sol { pool.token_reserve - amount_in } else { pool.token_reserve + amount_out };
+    
+    let y_prime = pool.sol_reserve as u128;
+    let x_prime = pool.token_reserve as u128;
+    let y = old_sol as u128;
+    let x = old_token as u128;
+    
+    let left = y_prime.checked_mul(x).unwrap();
+    let right = y.checked_mul(x_prime).unwrap();
+    
+    let diff = if left > right { left - right } else { right - left };
+    let limit = right.checked_mul(300).unwrap() / 10000; // 3%
+    
+    require!(diff <= limit, RwaError::ExcessivePriceImpact);
 
     pool.last_k = pool.compute_k();
-    pool.tvl = pool
-        .sol_reserve
-        .checked_mul(2)
-        .ok_or(RwaError::ArithmeticOverflow)?;
+    
+    // Update aggregate investment tracking
+    if !is_token_to_sol {
+        let whitelist = &mut ctx.accounts.user_whitelist;
+        whitelist.total_invested = whitelist.total_invested.checked_add(amount_in).ok_or(RwaError::ArithmeticOverflow)?;
+
+        // HARDENING: Sync UserOwnership for Governance & Yield
+        let ownership = &mut ctx.accounts.user_ownership;
+        ownership.shares_owned = ownership.shares_owned.checked_add(amount_out).ok_or(RwaError::ArithmeticOverflow)?;
+        ownership.last_acquired_slot = clock.slot;
+        ownership.last_transaction_at = clock.unix_timestamp;
+    } else {
+        // User is selling tokens
+        let ownership = &mut ctx.accounts.user_ownership;
+        ownership.shares_owned = ownership.shares_owned.checked_sub(amount_in).ok_or(RwaError::ArithmeticOverflow)?;
+        ownership.last_transaction_at = clock.unix_timestamp;
+    }
+    
+    pool.tvl = pool.sol_reserve.checked_mul(2).ok_or(RwaError::ArithmeticOverflow)?;
     pool.last_swap_at = clock.unix_timestamp;
     pool.total_swaps = pool
         .total_swaps
@@ -230,10 +282,34 @@ pub struct SwapTokens<'info> {
 
     /// User's whitelist (must be KYC'd)
     #[account(
+        mut,
         seeds = [WhitelistEntry::SEED_PREFIX, user.key().as_ref()],
         bump = user_whitelist.bump,
     )]
     pub user_whitelist: Account<'info, WhitelistEntry>,
+
+    /// User's institutional ownership record (for Governance/Yield)
+    #[account(
+        mut,
+        seeds = [UserOwnership::SEED_PREFIX, asset.key().as_ref(), user.key().as_ref()],
+        bump = user_ownership.bump,
+    )]
+    pub user_ownership: Account<'info, UserOwnership>,
+
+    /// The asset's DAO TreasuryVault (receives protocol/DAO fees)
+    #[account(
+        mut,
+        seeds = [TreasuryVault::SEED_PREFIX, asset.key().as_ref()],
+        bump = dao_treasury.bump,
+    )]
+    pub dao_treasury: Account<'info, TreasuryVault>,
+
+    /// Global platform config
+    #[account(
+        seeds = [ProgramConfig::SEED_PREFIX],
+        bump = config.bump,
+    )]
+    pub config: Account<'info, ProgramConfig>,
 
     pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,

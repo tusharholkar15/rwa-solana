@@ -28,7 +28,11 @@ const blockchainEventSchema = new mongoose.Schema(
     // Strict classification
     type: {
       type: String,
-      enum: ["BUY", "SELL", "PRICE", "ORACLE_ALERT", "UNKNOWN"],
+      enum: [
+        "BUY", "SELL", "PRICE", "ORACLE_ALERT", 
+        "GOVERNANCE_EXECUTION", "DARK_POOL_MATCH", "COMPLIANCE_BREACH", 
+        "INVESTMENT_LIMIT_REACHED", "YIELD_HARVEST", "UNKNOWN"
+      ],
       default: "UNKNOWN",
       index: true,
     },
