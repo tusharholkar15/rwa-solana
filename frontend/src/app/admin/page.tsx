@@ -6,7 +6,7 @@ import {
   Users, Building2, Activity, BarChart3,
   Plus, Check, X, Clock, Zap,
   Database, ShieldCheck, FileSearch, UserCog, AlertTriangle,
-  CheckCircle2, Loader2, RefreshCw,
+  CheckCircle2, Loader2, RefreshCw, ShieldAlert
 } from 'lucide-react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import AuthGate from '@/components/shared/AuthGate';
@@ -15,8 +15,9 @@ import ConfirmModal from '@/components/shared/ConfirmModal';
 import { DashboardSkeleton, SkeletonRow } from '@/components/shared/Skeletons';
 import { api } from '@/lib/api';
 import { ASSET_TYPES } from '@/lib/constants';
+import AdminHardeningPanel from '@/components/admin/AdminHardeningPanel';
 
-type AdminTab = 'overview' | 'verification' | 'roles';
+type AdminTab = 'overview' | 'verification' | 'roles' | 'security';
 
 export default function AdminPage() {
   const { publicKey } = useWallet();
@@ -212,6 +213,7 @@ function AdminContent() {
                 { key: 'overview', label: 'Overview', icon: BarChart3 },
                 { key: 'verification', label: 'Verification', icon: FileSearch },
                 { key: 'roles', label: 'RBAC', icon: UserCog },
+                { key: 'security', label: 'Oracles', icon: ShieldAlert },
               ] as const).map(t => (
                 <button
                   key={t.key}
@@ -575,6 +577,12 @@ function AdminContent() {
                 </div>
               </div>
             </div>
+          </motion.div>
+        )}
+        {/* ═══ SECURITY TAB ═══════════════════════════════════ */}
+        {activeTab === 'security' && (
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
+            <AdminHardeningPanel />
           </motion.div>
         )}
 

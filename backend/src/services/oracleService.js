@@ -8,132 +8,118 @@ const Asset = require("../models/Asset");
 const priceService = require("./priceService");
 const auditService = require("./auditService");
 
+const logger = require("../config/logger");
+
 class OracleService {
   constructor() {
-    this.heartbeatInterval = null;
-    this.TWAP_PERIOD_MS = 60 * 60 * 1000; // 1 hour for TWAP window
+    this.heartbeatRun = false;
+    this.TWAP_PERIOD_MS = 60 * 60 * 1000;
   }
 
-  /**
-   * Start the multi-oracle heartbeat
-   */
-  startHeartbeat(intervalMs = 15 * 60 * 1000) {
-    if (this.heartbeatInterval) return;
-    
-    console.log("[OracleService] Starting multi-oracle aggregator...");
-    
-    this.heartbeatInterval = setInterval(async () => {
+  async startHeartbeat(intervalMs = 15 * 60 * 1000) {
+    if (this.heartbeatRun) return;
+    this.heartbeatRun = true;
+    logger.info("[OracleService] Starting recursive multi-oracle heartbeat...");
+
+    const run = async () => {
+      if (!this.heartbeatRun) return;
       try {
         const solPriceData = await priceService.getSolPrice();
         const liveSolPrice = solPriceData.price;
-        
         const assets = await Asset.find({ isActive: true });
+
         for (const asset of assets) {
-          const baseNav = asset.navPrice || asset.pricePerToken;
-          
-          // Use real SOL price to influence the asset's NAV based on its baseline
-          // In a complex system, we'd have unique feed IDs per asset.
-          // For the demo, we use SOL/USD as the reference market driver.
-          const marketSentiment = liveSolPrice / 145.0; // Assume 145 is baseline
-          
-          // Pyth (Live Anchor)
-          const pythPrice = baseNav * marketSentiment;
-          // Simulate Switchboard with a small randomized noise around Pyth (Demo limitation)
-          const sbPrice = pythPrice * (1 + (Math.random() * 0.002 - 0.001));
-
-          // 1. Check spread threshold (Prevent manipulation)
-          const spread = Math.abs(pythPrice - sbPrice) / baseNav;
-          const MAX_ALLOWED_SPREAD = 0.05; // 5% spread triggers TWAP fallback
-          
-          let finalPrice = baseNav;
-          let activeProviders = [];
-
-          if (spread > MAX_ALLOWED_SPREAD) {
-            // Circuit Breaker: Spread too high, use TWAP fallback
-            console.warn(`[OracleService] High spread detected for ${asset._id} (${(spread * 100).toFixed(2)}%). Falling back to TWAP.`);
-            
-            await auditService.logEvent({
-              eventType: "oracle_circuit_breaker",
-              walletAddress: "system",
-              details: {
-                assetId: asset._id,
-                reason: "HIGH_SPREAD",
-                spread: (spread * 100).toFixed(4) + "%",
-                pythPrice,
-                sbPrice
-              },
-              performedBy: "oracle_aggregator"
-            });
-
-            finalPrice = await this.calculateTWAP(asset._id);
-            activeProviders = ["TWAP_FALLBACK"];
-          } else {
-            // Normal Aggregation (Median of Pyth and Switchboard)
-            const twapPrice = await this.calculateTWAP(asset._id);
-            const prices = [pythPrice, sbPrice, twapPrice].filter(Boolean);
-            
-            // 2. Z-Score Anomaly Detection
-            const mean = prices.reduce((a, b) => a + b) / prices.length;
-            const variance = prices.reduce((a, b) => a + (b - mean) ** 2, 0) / prices.length;
-            const stddev = Math.sqrt(variance);
-
-            // Filter prices that are within 2 std devs
-            const valid = prices.filter(p => Math.abs(p - mean) <= 2 * stddev);
-            
-            if (valid.length < 2) {
-               console.warn(`[OracleService] Z-Score Anomaly: Rejecting divergent prices for ${asset._id}. Circuit breaker triggered.`);
-               
-               await auditService.logEvent({
-                 eventType: "oracle_circuit_breaker",
-                 walletAddress: "system",
-                 details: {
-                   assetId: asset._id,
-                   reason: "Z_SCORE_ANOMALY",
-                   prices: [pythPrice, sbPrice, twapPrice],
-                   mean,
-                   stddev
-                 },
-                 performedBy: "oracle_aggregator"
-               });
-
-               finalPrice = twapPrice; // Fallback
-               activeProviders = ["TWAP_FALLBACK", "CIRCUIT_BREAKER"];
-            } else {
-               finalPrice = valid.reduce((a, b) => a + b) / valid.length;
-               activeProviders = ["Pyth", "Switchboard", "Z_SCORE_VALIDATED"];
-            }
-          }
-
-          // Publish aggregated update
-          const feed = await this.publishNavUpdate({
-            assetId: asset._id,
-            provider: "MULTI_AGGREGATOR",
-            navPrice: finalPrice,
-            confidenceInterval: spread > MAX_ALLOWED_SPREAD ? 0.05 : 0.01,
-            sourceTags: activeProviders,
-          });
-          
-          // Broadcast via realtime service
-          const realtimeService = require('./realtimeService');
-          if (realtimeService) {
-             realtimeService.publish(`asset:${asset._id}`, {
-                type: 'PRICE_UPDATE',
-                assetId: asset._id,
-                data: feed
-             });
-          }
+          await this.processAssetOracle(asset, liveSolPrice);
         }
       } catch (error) {
-        console.error("[OracleService] Aggregator error:", error);
+        logger.error({ error: error.message }, "[OracleService] Heartbeat loop error");
+      } finally {
+        if (this.heartbeatRun) {
+          setTimeout(run, intervalMs);
+        }
       }
-    }, intervalMs);
+    };
+
+    run();
+  }
+
+  async processAssetOracle(asset, liveSolPrice) {
+    try {
+      const baseNav = asset.navPrice || asset.pricePerToken;
+      const marketSentiment = liveSolPrice / 145.0; 
+      const pythPrice = baseNav * marketSentiment;
+      const sbPrice = pythPrice * (1 + (Math.random() * 0.002 - 0.001));
+
+      const spread = Math.abs(pythPrice - sbPrice) / baseNav;
+      const MAX_ALLOWED_SPREAD = 0.05; 
+      
+      let finalPrice = baseNav;
+      let activeProviders = [];
+
+      if (spread > MAX_ALLOWED_SPREAD) {
+        logger.warn({ assetId: asset._id, spread }, "[OracleService] Circuit breaker TRIP: High spread. Pausing asset.");
+        
+        // Automated Safeguard: Pause the asset on-platform
+        asset.status = "paused";
+        asset.isActive = false;
+        asset.pausalReason = `ORACLE_HIGH_SPREAD: ${(spread * 100).toFixed(2)}%`;
+        await asset.save();
+
+        await auditService.logEvent({
+          eventType: "oracle_circuit_breaker",
+          walletAddress: "system",
+          details: { assetId: asset._id, reason: "HIGH_SPREAD", spread, pythPrice, sbPrice, action: "AUTO_PAUSE" },
+          performedBy: "oracle_aggregator"
+        });
+
+        finalPrice = await this.calculateTWAP(asset._id);
+        activeProviders = ["TWAP_FALLBACK", "CIRCUIT_BREAKER_TRIPPED"];
+      } else {
+        const twapPrice = await this.calculateTWAP(asset._id);
+        const prices = [pythPrice, sbPrice, twapPrice].filter(Boolean);
+        
+        const mean = prices.reduce((a, b) => a + b) / prices.length;
+        const variance = prices.reduce((a, b) => a + (b - mean) ** 2, 0) / prices.length;
+        const stddev = Math.sqrt(variance);
+
+        const valid = prices.filter(p => Math.abs(p - mean) <= 2 * stddev);
+        
+        if (valid.length < 2) {
+           logger.warn({ assetId: asset._id, prices }, "[OracleService] Circuit breaker TRIP: Z-Score Anomaly. Pausing asset.");
+           
+           asset.status = "paused";
+           asset.isActive = false;
+           asset.pausalReason = "ORACLE_Z_SCORE_ANOMALY";
+           await asset.save();
+
+           await auditService.logEvent({
+             eventType: "oracle_circuit_breaker",
+             walletAddress: "system",
+             details: { assetId: asset._id, reason: "Z_SCORE_ANOMALY", prices, mean, stddev, action: "AUTO_PAUSE" },
+             performedBy: "oracle_aggregator"
+           });
+           finalPrice = twapPrice;
+           activeProviders = ["TWAP_FALLBACK", "CIRCUIT_BREAKER_TRIPPED"];
+        } else {
+           finalPrice = valid.reduce((a, b) => a + b) / valid.length;
+           activeProviders = ["Pyth", "Switchboard", "Z_SCORE_VALIDATED"];
+        }
+      }
+
+      await this.publishNavUpdate({
+        assetId: asset._id,
+        provider: "MULTI_AGGREGATOR",
+        navPrice: finalPrice,
+        confidenceInterval: spread > MAX_ALLOWED_SPREAD ? 0.05 : 0.01,
+        sourceTags: activeProviders,
+      });
+    } catch (err) {
+      logger.error({ err: err.message, assetId: asset._id }, "[OracleService] Asset processing failed");
+    }
   }
 
   stopHeartbeat() {
-    if (this.heartbeatInterval) {
-      clearInterval(this.heartbeatInterval);
-      this.heartbeatInterval = null;
-    }
+    this.heartbeatRun = false;
   }
 
   /**
@@ -214,6 +200,17 @@ class OracleService {
     })
     .sort({ timestamp: 1 })
     .select("navPrice timestamp provider sourceTags");
+  }
+
+  async getHealth() {
+    const stats = {
+      isHeartbeatActive: this.heartbeatRun,
+      lastSolPrice: await priceService.getSolPrice(),
+      activeAssets: await Asset.countDocuments({ isActive: true }),
+      pausedAssets: await Asset.countDocuments({ status: "paused" }),
+      timestamp: new Date()
+    };
+    return stats;
   }
 }
 

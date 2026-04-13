@@ -6,13 +6,13 @@ const Transaction = require("../models/Transaction");
 const Portfolio = require("../models/Portfolio");
 const TaxLot = require("../models/TaxLot");
 const { validateTradeRequest } = require("../middleware/validation");
-const { requireWalletSignature } = require("../middleware/authMiddleware");
+const { requireWalletSignature } = require("../middleware/security");
 const { v4: uuidv4 } = require("uuid");
 const transferAgentService = require("../services/transferAgentService");
 const auditService = require("../services/auditService");
 
 const mongoose = require("mongoose");
-const redis = require("../config/redis");
+const cacheService = require("../services/cacheService");
 
 /**
  * POST /api/buy
@@ -23,11 +23,8 @@ router.post("/buy", requireWalletSignature, validateTradeRequest, async (req, re
   const MAX_RETRIES = 3;
   let attempt = 1;
   while (attempt <= MAX_RETRIES) {
-    let session = null;
-    if (process.env.NODE_ENV !== "development" && process.env.NODE_ENV !== "test") {
-      session = await mongoose.startSession();
-      session.startTransaction();
-    }
+    const session = await mongoose.startSession();
+    session.startTransaction();
 
     try {
       const { assetId, shares, walletAddress } = req.body;
@@ -182,25 +179,24 @@ router.post("/buy", requireWalletSignature, validateTradeRequest, async (req, re
         performedBy: walletAddress
       }, session);
 
+      // 7. Queue Persistent Background Sync (Atomic with Transaction)
+      await transferAgentService.queueTransfer(
+        asset._id,
+        "ISSUER_TREASURY",
+        walletAddress,
+        shares,
+        session
+      );
+
       // COMMIT ALL DB CHANGES
       if (session) {
         await session.commitTransaction();
       }
 
       // Invalidate Cache after Commit
-      await redis.del(cacheKey);
-      const keys = await redis.keys("assets:list:*");
-      if (keys.length > 0) {
-        await redis.del(...keys);
-      }
-
-      // Backend background sync (non-transactional)
-      transferAgentService.syncTransfer(
-        asset._id,
-        "ISSUER_TREASURY",
-        walletAddress,
-        shares
-      ).catch(err => console.error("[Background] TA Sync Failed:", err.message));
+      await cacheService.del(cacheKey);
+      await cacheService.invalidatePattern("assets:list:*");
+      await cacheService.del(`asset:${assetId}`);
 
       return res.json({
         message: "Purchase successful",
@@ -239,11 +235,8 @@ router.post("/sell", requireWalletSignature, validateTradeRequest, async (req, r
   const MAX_RETRIES = 3;
   let attempt = 1;
   while (attempt <= MAX_RETRIES) {
-    let session = null;
-    if (process.env.NODE_ENV !== "development" && process.env.NODE_ENV !== "test") {
-      session = await mongoose.startSession();
-      session.startTransaction();
-    }
+    const session = await mongoose.startSession();
+    session.startTransaction();
 
     try {
       const { assetId, shares, walletAddress } = req.body;
@@ -380,24 +373,24 @@ router.post("/sell", requireWalletSignature, validateTradeRequest, async (req, r
       }, session);
 
       // 7. Commit Transaction & Post-Commit Actions
+      // 8. Queue Persistent Background Sync (Atomic with Transaction)
+      await transferAgentService.queueTransfer(
+        asset._id,
+        walletAddress,
+        "REdemption_TREASURY",
+        shares,
+        session
+      );
+
+      // COMMIT ALL DB CHANGES
       if (session) {
         await session.commitTransaction();
       }
 
       // Invalidate Cache after Commit
-      await redis.del(cacheKey);
-      const keys = await redis.keys("assets:list:*");
-      if (keys.length > 0) {
-        await redis.del(...keys);
-      }
-
-      // Trigger async Transfer Agent integration (Non-blocking)
-      transferAgentService.syncTransfer(
-        asset._id,
-        walletAddress,
-        "REdemption_TREASURY", // Simulated secondary redemption
-        shares
-      ).catch(err => console.error("[Background] TA Sync Failed:", err.message));
+      await cacheService.del(cacheKey);
+      await cacheService.invalidatePattern("assets:list:*");
+      await cacheService.del(`asset:${assetId}`);
 
       return res.json({
         message: "Sale successful",
@@ -458,11 +451,9 @@ router.post("/amm/swap", requireWalletSignature, async (req, res) => {
     });
     
     await transaction.save();
-    await redis.del(`portfolio:${walletAddress}`);
-    const keys = await redis.keys("assets:list:*");
-    if (keys.length > 0) {
-      await redis.del(...keys);
-    }
+    await cacheService.del(`portfolio:${walletAddress}`);
+    await cacheService.invalidatePattern("assets:list:*");
+    await cacheService.del(`asset:${assetId}`);
     
     // Note: Portfolio update would normally happen via Indexer observing the chain
     // but for immediate UI response we might optimistically update it here if necessary.

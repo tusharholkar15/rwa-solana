@@ -6,7 +6,8 @@
 const express = require("express");
 const router = express.Router();
 const oracleService = require("../services/oracleService");
-const { requireWalletSignature, requireAdminWallet } = require("../middleware/authMiddleware");
+const { requireWalletSignature, requireRole } = require("../middleware/security");
+const requireAdminWallet = requireRole("admin");
 
 /**
  * GET /api/oracle/history/:assetId
@@ -43,6 +44,43 @@ router.post("/update", requireWalletSignature, requireAdminWallet, async (req, r
     });
 
     res.json({ success: true, feed });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/oracle/status/:assetId
+ * Fetch detailed circuit breaker status for an asset
+ */
+router.get("/status/:assetId", async (req, res) => {
+  try {
+    const { assetId } = req.params;
+    const Asset = require("../models/Asset");
+    const asset = await Asset.findById(assetId);
+    
+    if (!asset) return res.status(404).json({ error: "Asset not found" });
+
+    res.json({
+      assetId: asset._id,
+      status: asset.status,
+      pausalReason: asset.pausalReason || null,
+      lastOracleUpdate: asset.lastOracleUpdate,
+      navPrice: asset.navPrice
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/oracle/health
+ * Fetch global oracle system health
+ */
+router.get("/health", async (req, res) => {
+  try {
+    const health = await oracleService.getHealth();
+    res.json(health);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

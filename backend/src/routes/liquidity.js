@@ -5,7 +5,8 @@ const express = require("express");
 const router = express.Router();
 const liquidityService = require("../services/liquidityService");
 const darkPoolEngine = require("../services/darkPoolEngine");
-const { requireWalletSignature, requireAdminWallet } = require("../middleware/authMiddleware");
+const { requireWalletSignature, requireRole } = require("../middleware/security");
+const requireAdminWallet = requireRole("admin");
 
 /**
  * GET /api/liquidity/pools

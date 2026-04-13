@@ -21,15 +21,27 @@ class AuditService {
         ipAddress: details.ipAddress || "system",
         jurisdiction: details.jurisdiction || "unknown",
         amlScore: details.amlScore || 0,
-        regulatorFlag: details.regulatorFlag || false
+        regulatorFlag: details.regulatorFlag || !!details.isSuspicious
       });
 
       await log.save({ session });
+      
+      // Institutional Tracking: If this is a circuit breaker or suspicious activity, 
+      // we MUST ensure it persists.
+      if (details.isHighPriority && !session) {
+         // Force immediate flush if no session provided for high priority events
+         await log.save();
+      }
+
       return log;
     } catch (error) {
-      console.error("Failed to append to audit log:", error);
-      // We don't throw here to avoid failing the main transaction if logging fails,
-      // but in production, this should ideally be atomic or use a reliable queue (BullMQ).
+      console.error("[AuditService] Failed to append to audit log:", error);
+      
+      // If we are in a session, we MUST throw to trigger a rollback.
+      // Compliance integrity is paramount for institutional RWAs.
+      if (session) {
+        throw new Error(`Audit Logging Failed: ${error.message}. Rolling back main transaction.`);
+      }
     }
   }
 

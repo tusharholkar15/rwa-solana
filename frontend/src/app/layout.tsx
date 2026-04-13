@@ -5,6 +5,7 @@ import { CurrencyProvider } from '@/context/CurrencyContext';
 import { ToastProvider } from '@/components/shared/Toast';
 import { RoleProvider } from '@/context/RoleContext';
 import { RealtimeProvider } from '@/context/RealtimeContext';
+import { AuthProvider } from '@/context/AuthContext';
 import Navbar from '@/components/layout/Navbar';
 
 export const metadata: Metadata = {
@@ -23,21 +24,23 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <body className="min-h-screen bg-surface-950 font-sans antialiased text-white">
         <SolanaWalletProvider>
-          <RealtimeProvider>
-            <CurrencyProvider>
-            <RoleProvider>
-              <ToastProvider>
-                <div className="min-h-screen relative overflow-x-hidden">
-                  <Navbar />
-                  <main className="pt-28 px-4 lg:px-8">
-                     {children}
-                  </main>
-                </div>
-              </ToastProvider>
-            </RoleProvider>
-          </CurrencyProvider>
-        </RealtimeProvider>
-      </SolanaWalletProvider>
+          <AuthProvider>
+            <RealtimeProvider>
+              <CurrencyProvider>
+              <RoleProvider>
+                <ToastProvider>
+                  <div className="min-h-screen relative overflow-x-hidden">
+                    <Navbar />
+                    <main className="pt-28 px-4 lg:px-8">
+                       {children}
+                    </main>
+                  </div>
+                </ToastProvider>
+              </RoleProvider>
+            </CurrencyProvider>
+          </RealtimeProvider>
+        </AuthProvider>
+        </SolanaWalletProvider>
       </body>
     </html>
   );

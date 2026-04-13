@@ -5,7 +5,7 @@ const Transaction = require("../models/Transaction");
 const Asset = require("../models/Asset");
 const TaxLot = require("../models/TaxLot");
 const priceService = require("../services/priceService");
-const { validateWallet } = require("../middleware/auth");
+const { requireWalletSignature: validateWallet } = require("../middleware/security");
 const { paginationMeta } = require("../utils/helpers");
 
 /**
@@ -50,7 +50,7 @@ router.get("/:wallet/tax-lots", validateWallet, async (req, res) => {
   }
 });
 
-const redis = require("../config/redis");
+const cacheService = require("../services/cacheService");
 
 /**
  * GET /api/portfolio/:wallet
@@ -61,100 +61,91 @@ router.get("/:wallet", validateWallet, async (req, res) => {
   const cacheKey = `portfolio:${wallet}`;
 
   try {
-    // 1. Try to serve from Redis cache
-    const cachedData = await redis.get(cacheKey);
-    if (cachedData) {
-      // Set HTTP Cache Headers for browser/CDN optimization
-    res.setHeader("Cache-Control", "public, s-maxage=10, stale-while-revalidate=59");
+    const fetchPortfolio = async () => {
+      const portfolio = await Portfolio.findOne({ walletAddress: wallet });
 
-    return res.json(JSON.parse(cachedData));
-    }
+      if (!portfolio) {
+        return {
+          portfolio: {
+            walletAddress: wallet,
+            holdings: [],
+            totalValue: 0,
+            totalInvested: 0,
+            totalYieldEarned: 0,
+            totalRealizedPnl: 0,
+            unrealizedPnl: 0,
+          },
+        };
+      }
 
-    const portfolio = await Portfolio.findOne({ walletAddress: wallet });
+      // Populate holdings with asset details
+      const enrichedHoldings = await Promise.all(
+        portfolio.holdings.map(async (holding) => {
+          const asset = await Asset.findById(holding.assetId).select(
+            "name symbol images pricePerToken navPrice lastOracleUpdate assetType location status"
+          );
 
-    if (!portfolio) {
-      return res.json({
+          if (!asset) return null;
+
+          const currentValue = holding.shares * asset.pricePerToken;
+          const navValue = holding.shares * (asset.navPrice || asset.pricePerToken);
+          const costBasis = Math.round(holding.shares * (holding.avgBuyPrice || 0));
+          const unrealizedPnl = currentValue - costBasis;
+          const pnlPercentage = costBasis > 0 ? (unrealizedPnl / costBasis) * 100 : 0;
+
+          return {
+            ...holding.toObject(),
+            asset: {
+              name: asset.name,
+              symbol: asset.symbol,
+              image: asset.images?.[0] || null,
+              currentPrice: asset.pricePerToken,
+              navPrice: asset.navPrice || asset.pricePerToken,
+              lastOracleUpdate: asset.lastOracleUpdate,
+              assetType: asset.assetType,
+              location: asset.location,
+              status: asset.status,
+            },
+            currentValue,
+            navValue,
+            unrealizedPnl,
+            pnlPercentage: Math.round(pnlPercentage * 100) / 100,
+            totalYieldReceived: holding.totalYieldReceived || 0,
+            lastTransactionAt: holding.lastTransactionAt || null,
+            ownershipPercentage: 0,
+          };
+        })
+      );
+
+      const validHoldings = enrichedHoldings.filter((h) => h !== null);
+      const totalCurrentValue = validHoldings.reduce((sum, h) => sum + h.currentValue, 0);
+      const totalNavValue = validHoldings.reduce((sum, h) => sum + h.navValue, 0);
+      const totalUnrealizedPnl = validHoldings.reduce((sum, h) => sum + h.unrealizedPnl, 0);
+
+      const solPrice = await priceService.getSolPrice();
+
+      return {
         portfolio: {
           walletAddress: wallet,
-          holdings: [],
-          totalValue: 0,
-          totalInvested: 0,
-          totalYieldEarned: 0,
-          totalRealizedPnl: 0,
-          unrealizedPnl: 0,
+          holdings: validHoldings,
+          totalValue: totalCurrentValue,
+          totalValueUsd: (totalCurrentValue / 1e9) * solPrice.price,
+          totalNavValue: totalNavValue,
+          totalNavValueUsd: (totalNavValue / 1e9) * solPrice.price,
+          totalInvested: portfolio.totalInvested,
+          totalInvestedUsd: (portfolio.totalInvested / 1e9) * solPrice.price,
+          totalYieldEarned: portfolio.totalYieldEarned || 0,
+          totalRealizedPnl: portfolio.totalRealizedPnl || 0,
+          unrealizedPnl: totalUnrealizedPnl,
+          assetsCount: validHoldings.length,
+          valueHistory: portfolio.valueHistory || [],
         },
-      });
-    }
-
-    // Populate holdings with asset details
-    const enrichedHoldings = await Promise.all(
-      portfolio.holdings.map(async (holding) => {
-        const asset = await Asset.findById(holding.assetId).select(
-          "name symbol images pricePerToken navPrice lastOracleUpdate assetType location status"
-        );
-
-        if (!asset) return null;
-
-        const currentValue = holding.shares * asset.pricePerToken;
-        const navValue = holding.shares * (asset.navPrice || asset.pricePerToken);
-        const costBasis = Math.round(holding.shares * (holding.avgBuyPrice || 0));
-        const unrealizedPnl = currentValue - costBasis;
-        const pnlPercentage = costBasis > 0 ? (unrealizedPnl / costBasis) * 100 : 0;
-
-        return {
-          ...holding.toObject(),
-          asset: {
-            name: asset.name,
-            symbol: asset.symbol,
-            image: asset.images?.[0] || null,
-            currentPrice: asset.pricePerToken,
-            navPrice: asset.navPrice || asset.pricePerToken,
-            lastOracleUpdate: asset.lastOracleUpdate,
-            assetType: asset.assetType,
-            location: asset.location,
-            status: asset.status,
-          },
-          currentValue,
-          navValue,
-          unrealizedPnl,
-          pnlPercentage: Math.round(pnlPercentage * 100) / 100,
-          totalYieldReceived: holding.totalYieldReceived || 0,
-          lastTransactionAt: holding.lastTransactionAt || null,
-          ownershipPercentage: 0,
-        };
-      })
-    );
-
-    const validHoldings = enrichedHoldings.filter((h) => h !== null);
-    const totalCurrentValue = validHoldings.reduce((sum, h) => sum + h.currentValue, 0);
-    const totalNavValue = validHoldings.reduce((sum, h) => sum + h.navValue, 0);
-    const totalUnrealizedPnl = validHoldings.reduce((sum, h) => sum + h.unrealizedPnl, 0);
-
-    const solPrice = await priceService.getSolPrice();
-
-    const responseData = {
-      portfolio: {
-        walletAddress: wallet,
-        holdings: validHoldings,
-        totalValue: totalCurrentValue,
-        totalValueUsd: (totalCurrentValue / 1e9) * solPrice.price,
-        totalNavValue: totalNavValue,
-        totalNavValueUsd: (totalNavValue / 1e9) * solPrice.price,
-        totalInvested: portfolio.totalInvested,
-        totalInvestedUsd: (portfolio.totalInvested / 1e9) * solPrice.price,
-        totalYieldEarned: portfolio.totalYieldEarned || 0,
-        totalRealizedPnl: portfolio.totalRealizedPnl || 0,
-        unrealizedPnl: totalUnrealizedPnl,
-        assetsCount: validHoldings.length,
-        valueHistory: portfolio.valueHistory || [],
-      },
-      solPrice: solPrice.price,
-      cached: false,
+        solPrice: solPrice.price,
+      };
     };
 
-    // 2. Cache the result for 10 seconds as this is a high-frequency trading platform
-    await redis.setex(cacheKey, 10, JSON.stringify({ ...responseData, cached: true }));
-
+    const responseData = await cacheService.wrap(cacheKey, 10, fetchPortfolio);
+    res.setHeader("Cache-Control", "public, s-maxage=5, stale-while-revalidate=30");
     res.json(responseData);
   } catch (error) {
     console.error("Portfolio error:", error);

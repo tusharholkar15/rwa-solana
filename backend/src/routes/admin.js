@@ -6,7 +6,8 @@ const Transaction = require("../models/Transaction");
 const Portfolio = require("../models/Portfolio");
 const priceService = require("../services/priceService");
 const solanaService = require("../services/solanaService");
-const { requireAdmin } = require("../middleware/auth");
+const { requireWalletSignature, requireRole } = require("../middleware/security");
+const requireAdmin = requireRole("admin");
 
 /**
  * GET /api/admin/stats

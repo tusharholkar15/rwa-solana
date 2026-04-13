@@ -2,17 +2,62 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
 
 class ApiClient {
   private baseUrl: string;
+  private sessionAddress: string | null = null;
+  private sessionSignature: string | null = null;
+  private sessionMessage: string | null = null;
 
   constructor() {
     this.baseUrl = API_URL;
   }
 
+  /**
+   * ─── Hardening & Security (V3 Institutional) ─────────────────
+   */
+  async getOracleStatus(assetId: string) {
+    return this.request<any>(`/oracle/status/${assetId}`);
+  }
+
+  async resetCircuitBreaker(assetId: string) {
+    return this.request<{ message: string }>('/admin/circuit-breaker/reset', {
+      method: 'POST',
+      body: JSON.stringify({ assetId }),
+    });
+  }
+
+  /**
+   * Set the active SIWS session. This must be called after a successful 
+   * wallet.signMessage() to enable authorized requests.
+   */
+  setSession(address: string, signature: string, message: string) {
+    this.sessionAddress = address;
+    this.sessionSignature = signature;
+    this.sessionMessage = message;
+  }
+
+  /**
+   * Clear the session (e.g., on wallet disconnect or logout)
+   */
+  clearSession() {
+    this.sessionAddress = null;
+    this.sessionSignature = null;
+    this.sessionMessage = null;
+  }
+
   private async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
     const url = `${this.baseUrl}${endpoint}`;
+
+    // Inject SIWS headers if session is active
+    const authHeaders: Record<string, string> = {};
+    if (this.sessionSignature && this.sessionAddress && this.sessionMessage) {
+      authHeaders['x-wallet-address'] = this.sessionAddress;
+      authHeaders['x-wallet-signature'] = this.sessionSignature;
+      authHeaders['x-wallet-message'] = this.sessionMessage;
+    }
 
     const config: RequestInit = {
       headers: {
         'Content-Type': 'application/json',
+        ...authHeaders,
         ...options.headers,
       },
       ...options,
@@ -91,9 +136,14 @@ class ApiClient {
   }
 
   // ─── Portfolio ─────────────────────────────────────────────
-  async getPortfolio(wallet: string) {
+  async getPortfolio(wallet: string, forceRefresh = false) {
+    const options: RequestInit = forceRefresh 
+      ? { headers: { 'Cache-Control': 'no-cache' } } 
+      : {};
+      
     return this.request<{ portfolio: any; solPrice: number }>(
-      `/portfolio/${wallet}`
+      `/portfolio/${wallet}`,
+      options
     );
   }
 

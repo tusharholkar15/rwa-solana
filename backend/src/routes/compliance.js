@@ -5,7 +5,7 @@ const express = require("express");
 const router = express.Router();
 const complianceService = require("../services/complianceService");
 const auditService = require("../services/auditService");
-const { requireWalletSignature, requireRole, requirePermission } = require("../middleware/authMiddleware");
+const { requireWalletSignature, requireRole, requirePermission } = require("../middleware/security");
 const RoleRegistry = require("../models/RoleRegistry");
 
 /**

@@ -1,11 +1,12 @@
-require("dotenv").config();
+const backgroundWorkerService = require("./services/backgroundWorkerService");
+const indexerService = require("./services/indexerService");
 const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
 const pino = require("pino-http")({ logger: require("./config/logger") });
 const { connectDatabase, isDatabaseConnected } = require("./config/database");
-const { sanitizeInputs } = require("./middleware/sanitize");
+const { sanitizeMiddleware, requireWalletSignature } = require("./middleware/security");
 const redis = require("./config/redis");
 const { Connection } = require("@solana/web3.js");
 
@@ -62,7 +63,7 @@ const writeLimiter = rateLimit({
 // ─── Body Parsing ────────────────────────────────────────────────────
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
-app.use(sanitizeInputs);
+app.use(sanitizeMiddleware);
 
 // ─── Direct Webhooks (Priority - No Rate Limit) ──────────────────────
 app.use("/api/webhooks", webhookRoutes);
@@ -188,6 +189,14 @@ async function startServer() {
       // Start background services
       if (process.env.NODE_ENV !== "test") {
         oracleService.startHeartbeat(); // Starts simulated NAV fluctuations
+        
+        // Institutional Hardening: Start Background Worker for Guaranteed Delivery
+        backgroundWorkerService.start();
+
+        // Institutional Hardening: Start Indexer Reconciliation (Self-Healing)
+        if (indexerService.startReconciliation) {
+          indexerService.startReconciliation();
+        }
       }
     });
 

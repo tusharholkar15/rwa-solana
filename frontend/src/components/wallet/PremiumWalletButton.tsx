@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { shortenAddress } from '@/lib/constants';
+import { useAuth } from '@/context/AuthContext';
 
 interface PremiumWalletButtonProps {
   className?: string;
@@ -24,6 +25,7 @@ interface PremiumWalletButtonProps {
 export default function PremiumWalletButton({ className = '' }: PremiumWalletButtonProps) {
   const { connection } = useConnection();
   const { publicKey, wallet, disconnect, connected, connecting } = useWallet();
+  const { isAuthenticated, isAuthenticating, login, error: authError } = useAuth();
   const { setVisible } = useWalletModal();
   const [balance, setBalance] = useState<number | null>(null);
   const [showDropdown, setShowDropdown] = useState(false);
@@ -80,6 +82,23 @@ export default function PremiumWalletButton({ className = '' }: PremiumWalletBut
     );
   }
 
+  // Handle Connected but not Authenticated (SIWS)
+  if (!isAuthenticated) {
+    return (
+      <motion.button
+        whileHover={{ scale: 1.02 }}
+        whileTap={{ scale: 0.98 }}
+        onClick={login}
+        disabled={isAuthenticating}
+        className={`${baseButtonStyles} bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-500/20 ${className}`}
+      >
+        <ShieldCheck size={14} className={isAuthenticating ? 'animate-spin' : ''} />
+        <span>{isAuthenticating ? 'Verifying...' : 'Sign Authorization'}</span>
+        {!isAuthenticating && <ArrowRight size={14} className="opacity-40" />}
+      </motion.button>
+    );
+  }
+
   return (
     <div className="relative">
       <motion.div
@@ -105,8 +124,8 @@ export default function PremiumWalletButton({ className = '' }: PremiumWalletBut
           </div>
           <div className="flex flex-col items-start leading-none">
             <span className="text-[10px] text-white font-bold">{shortenAddress(publicKey?.toBase58() || '', 4)}</span>
-            <span className="text-[7px] text-emerald-400/60 font-black uppercase tracking-widest flex items-center gap-1">
-              <ShieldCheck size={8} /> Verified
+            <span className="text-[7px] text-emerald-400 font-black uppercase tracking-widest flex items-center gap-1">
+              <ShieldCheck size={8} /> Active Session
             </span>
           </div>
           <ChevronDown 

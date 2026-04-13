@@ -42,5 +42,6 @@
         { "name": "timestamp", "type": "i64", "index": false }
       ]
     }
-  ]
+  ],
+  "types": []
 }

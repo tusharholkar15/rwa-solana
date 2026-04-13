@@ -12,6 +12,7 @@ import {
   ChevronDown, TrendingUp, ArrowRight, Cpu, LogOut,
 } from 'lucide-react';
 import { useRole } from '@/context/RoleContext';
+import { useSecurity } from '@/hooks/useSecurity';
 import SystemStatusIndicator from '@/components/layout/SystemStatusIndicator';
 
 // ─── Navigation Structure ────────────────────────────────────────────────────
@@ -220,6 +221,7 @@ export default function Navbar() {
   const pathname = usePathname();
   const { connected, publicKey } = useWallet();
   const { isDemoMode, toggleDemoMode } = useRole();
+  const { isAuthenticated, isAuthenticating, challenge } = useSecurity();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -295,6 +297,37 @@ export default function Navbar() {
             <SystemStatusIndicator />
 
             <PremiumWalletButton />
+
+            {/* SIWS Authentication Status */}
+            {connected && !isAuthenticated && (
+              <button
+                onClick={() => challenge()}
+                disabled={isAuthenticating}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '8px',
+                  padding: '8px 16px', borderRadius: '10px',
+                  background: 'linear-gradient(135deg, #ef4444, #b91c1c)',
+                  border: 'none', color: '#fff', fontSize: '12px', fontWeight: '700',
+                  cursor: isAuthenticating ? 'not-allowed' : 'pointer',
+                  boxShadow: '0 4px 12px rgba(239, 68, 68, 0.3)',
+                  transition: 'all 0.2s',
+                }}
+              >
+                <Shield size={14} className={isAuthenticating ? 'animate-pulse' : ''} />
+                <span>{isAuthenticating ? 'Verifying...' : 'Verify Identity'}</span>
+              </button>
+            )}
+
+            {connected && isAuthenticated && (
+               <div style={{
+                display: 'flex', alignItems: 'center', gap: '6px',
+                padding: '8px 12px', borderRadius: '10px',
+                background: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.2)',
+              }}>
+                <UserCheck size={14} color="#10b981" />
+                <span style={{ fontSize: '11px', fontWeight: '800', color: '#10b981', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Verified</span>
+              </div>
+            )}
 
             {isDemoMode && (
               <div style={{

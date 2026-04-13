@@ -3,12 +3,12 @@ const router = express.Router();
 const Asset = require("../models/Asset");
 const priceService = require("../services/priceService");
 const { validateAssetCreation } = require("../middleware/validation");
-const { requireAdmin } = require("../middleware/auth");
+const { requireWalletSignature, requireRole } = require("../middleware/security");
+const requireAdmin = requireRole("admin");
 const { paginationMeta } = require("../utils/helpers");
 const { isDatabaseConnected } = require("../config/database");
 const { getMockAssets, getMockAsset } = require("../utils/mockAssets");
-const { escapeRegex } = require("../middleware/sanitize");
-const redis = require("../config/redis");
+const cacheService = require("../services/cacheService");
 
 /**
  * GET /api/assets
@@ -29,78 +29,69 @@ router.get("/", async (req, res) => {
       maxPrice,
     } = req.query;
 
-    // Try cache first (skip if search/filter params make the key unique)
     const cacheKey = `assets:list:${type || "all"}:${sortBy}:${page}:${limit}`;
-    if (!search && !minPrice && !maxPrice && !status) {
-      const cached = await redis.get(cacheKey);
-      if (cached) {
-        res.setHeader("X-Cache", "HIT");
-        return res.json(JSON.parse(cached));
+    const canCache = !search && !minPrice && !maxPrice && !status;
+
+    const fetchAssets = async () => {
+      const filter = { isActive: true };
+
+      if (type) filter.assetType = type;
+      if (status) filter.status = status;
+      if (search) {
+        const safeSearch = search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); // Simple escape
+        filter.$or = [
+          { name: { $regex: safeSearch, $options: "i" } },
+          { description: { $regex: safeSearch, $options: "i" } },
+          { "location.city": { $regex: safeSearch, $options: "i" } },
+        ];
       }
-    }
+      if (minPrice) filter.pricePerToken = { ...filter.pricePerToken, $gte: Number(minPrice) };
+      if (maxPrice) filter.pricePerToken = { ...filter.pricePerToken, $lte: Number(maxPrice) };
 
-    const filter = { isActive: true };
+      // Fallback if database is disconnected
+      if (!isDatabaseConnected()) {
+        const mockData = getMockAssets();
+        const solPrice = await priceService.getSolPrice();
+        return {
+          assets: mockData.map(a => ({
+            ...a,
+            pricePerTokenUsd: (a.pricePerToken / 1e9) * solPrice.price,
+            propertyValueUsd: a.propertyValue,
+            soldPercentage: ((a.totalSupply - a.availableSupply) / a.totalSupply) * 100
+          })),
+          pagination: paginationMeta(mockData.length, 1, mockData.length),
+          solPrice: solPrice.price,
+          isMock: true
+        };
+      }
 
-    if (type) filter.assetType = type;
-    if (status) filter.status = status;
-    if (search) {
-      const safeSearch = escapeRegex(search);
-      filter.$or = [
-        { name: { $regex: safeSearch, $options: "i" } },
-        { description: { $regex: safeSearch, $options: "i" } },
-        { "location.city": { $regex: safeSearch, $options: "i" } },
-      ];
-    }
-    if (minPrice) filter.pricePerToken = { ...filter.pricePerToken, $gte: Number(minPrice) };
-    if (maxPrice) filter.pricePerToken = { ...filter.pricePerToken, $lte: Number(maxPrice) };
+      const total = await Asset.countDocuments(filter);
+      const assets = await Asset.find(filter)
+        .sort({ [sortBy]: order === "desc" ? -1 : 1 })
+        .skip((Number(page) - 1) * Number(limit))
+        .limit(Number(limit))
+        .select("-priceHistory -documents");
 
-    // Check for database connection
-    if (!isDatabaseConnected()) {
-      const mockData = getMockAssets();
       const solPrice = await priceService.getSolPrice();
-      return res.json({
-        assets: mockData.map(a => ({
-          ...a,
-          pricePerTokenUsd: (a.pricePerToken / 1e9) * solPrice.price,
-          propertyValueUsd: a.propertyValue,
-          soldPercentage: ((a.totalSupply - a.availableSupply) / a.totalSupply) * 100
-        })),
-        pagination: paginationMeta(mockData.length, 1, mockData.length),
-        solPrice: solPrice.price,
-        isMock: true
+      const enrichedAssets = assets.map((asset) => {
+        const a = asset.toObject();
+        a.pricePerTokenUsd = (a.pricePerToken / 1e9) * solPrice.price;
+        a.propertyValueUsd = a.propertyValue;
+        a.soldPercentage = ((a.totalSupply - a.availableSupply) / a.totalSupply) * 100;
+        return a;
       });
-    }
 
-    const total = await Asset.countDocuments(filter);
-    const assets = await Asset.find(filter)
-      .sort({ [sortBy]: order === "desc" ? -1 : 1 })
-      .skip((Number(page) - 1) * Number(limit))
-      .limit(Number(limit))
-      .select("-priceHistory -documents");
-
-    // Enrich with USD prices
-    const solPrice = await priceService.getSolPrice();
-    const enrichedAssets = assets.map((asset) => {
-      const a = asset.toObject();
-      a.pricePerTokenUsd = (a.pricePerToken / 1e9) * solPrice.price;
-      a.propertyValueUsd = a.propertyValue;
-      a.soldPercentage =
-        ((a.totalSupply - a.availableSupply) / a.totalSupply) * 100;
-      return a;
-    });
-
-    const responseData = {
-      assets: enrichedAssets,
-      pagination: paginationMeta(total, Number(page), Number(limit)),
-      solPrice: solPrice.price,
+      return {
+        assets: enrichedAssets,
+        pagination: paginationMeta(total, Number(page), Number(limit)),
+        solPrice: solPrice.price,
+      };
     };
 
-    // Cache for 15 seconds (skip if filtered by search)
-    if (!search && !minPrice && !maxPrice && !status) {
-      await redis.set(cacheKey, JSON.stringify(responseData), "EX", 15);
-    }
+    const responseData = canCache 
+      ? await cacheService.wrap(cacheKey, 15, fetchAssets)
+      : await fetchAssets();
 
-    res.setHeader("X-Cache", "MISS");
     res.json(responseData);
   } catch (error) {
     console.error("Error fetching assets:", error);
@@ -114,57 +105,36 @@ router.get("/", async (req, res) => {
  */
 router.get("/:id", async (req, res) => {
   try {
-    const cacheKey = `asset:${req.params.id}`;
-    const cached = await redis.get(cacheKey);
-    if (cached) {
-      res.setHeader("X-Cache", "HIT");
-      return res.json(JSON.parse(cached));
-    }
+    const assetId = req.params.id;
+    const cacheKey = `asset:${assetId}`;
 
-    // Check for database connection
-    if (!isDatabaseConnected()) {
-      const mockAsset = getMockAsset(req.params.id);
-      if (!mockAsset) return res.status(404).json({ error: "Asset not found" });
-      
+    const fetchAssetDetail = async () => {
+      if (!isDatabaseConnected()) {
+        const mockAsset = getMockAsset(assetId);
+        if (!mockAsset) throw new Error("Asset not found");
+        const solPrice = await priceService.getSolPrice();
+        return { asset: mockAsset, solPrice: solPrice.price, isMock: true };
+      }
+
+      const asset = await Asset.findById(assetId);
+      if (!asset) throw new Error("Asset not found");
+
       const solPrice = await priceService.getSolPrice();
-      mockAsset.pricePerTokenUsd = (mockAsset.pricePerToken / 1e9) * solPrice.price;
-      mockAsset.soldPercentage = ((mockAsset.totalSupply - mockAsset.availableSupply) / mockAsset.totalSupply) * 100;
-      mockAsset.marketCap = mockAsset.pricePerToken * mockAsset.totalSupply;
-      mockAsset.marketCapUsd = (mockAsset.marketCap / 1e9) * solPrice.price;
+      const assetObj = asset.toObject();
+      assetObj.pricePerTokenUsd = (assetObj.pricePerToken / 1e9) * solPrice.price;
+      assetObj.soldPercentage = ((assetObj.totalSupply - assetObj.availableSupply) / assetObj.totalSupply) * 100;
+      
+      if (!assetObj.priceHistory || assetObj.priceHistory.length === 0) {
+        assetObj.priceHistory = priceService.generatePriceHistory(assetObj.pricePerTokenUsd, 30);
+      }
 
-      return res.json({ asset: mockAsset, solPrice: solPrice.price, isMock: true });
-    }
+      return { asset: assetObj, solPrice: solPrice.price };
+    };
 
-    const asset = await Asset.findById(req.params.id);
-
-    if (!asset) {
-      return res.status(404).json({ error: "Asset not found" });
-    }
-
-    const solPrice = await priceService.getSolPrice();
-    const assetObj = asset.toObject();
-
-    // Enrich with computed fields
-    assetObj.pricePerTokenUsd = (assetObj.pricePerToken / 1e9) * solPrice.price;
-    assetObj.soldPercentage =
-      ((assetObj.totalSupply - assetObj.availableSupply) / assetObj.totalSupply) * 100;
-    assetObj.marketCap = assetObj.pricePerToken * assetObj.totalSupply;
-    assetObj.marketCapUsd = (assetObj.marketCap / 1e9) * solPrice.price;
-
-    // Generate price history if empty
-    if (!assetObj.priceHistory || assetObj.priceHistory.length === 0) {
-      assetObj.priceHistory = priceService.generatePriceHistory(
-        assetObj.pricePerTokenUsd,
-        30
-      );
-    }
-
-    const responseData = { asset: assetObj, solPrice: solPrice.price };
-    await redis.set(cacheKey, JSON.stringify(responseData), "EX", 30);
-
-    res.setHeader("X-Cache", "MISS");
+    const responseData = await cacheService.wrap(cacheKey, 30, fetchAssetDetail);
     res.json(responseData);
   } catch (error) {
+    if (error.message === "Asset not found") return res.status(404).json({ error: error.message });
     console.error("Error fetching asset:", error);
     res.status(500).json({ error: "Failed to fetch asset details" });
   }
