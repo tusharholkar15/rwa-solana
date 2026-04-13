@@ -100,6 +100,41 @@ app.use("/api/rent", rentRoutes);
 app.use("/api/audit", auditRoutes);
 app.use("/api/darkpool", darkpoolRoutes);
 
+// ─── Admin: Worker & Outbox Health ───────────────────────────────────
+const BackgroundTask = require("./models/BackgroundTask");
+app.get("/api/admin/worker-health", async (req, res) => {
+  try {
+    const [pending, processing, failed, deadLettered, completed] = await Promise.all([
+      BackgroundTask.countDocuments({ status: "PENDING" }),
+      BackgroundTask.countDocuments({ status: "PROCESSING" }),
+      BackgroundTask.countDocuments({ status: "FAILED" }),
+      BackgroundTask.countDocuments({ status: "DEAD_LETTER" }),
+      BackgroundTask.countDocuments({ status: "COMPLETED" }),
+    ]);
+
+    // Outbox-specific metrics
+    const outboxPending = await BackgroundTask.countDocuments({
+      type: "OUTBOX_DISPATCH",
+      status: { $in: ["PENDING", "FAILED"] },
+    });
+    const outboxDeadLettered = await BackgroundTask.countDocuments({
+      type: "OUTBOX_DISPATCH",
+      status: "DEAD_LETTER",
+    });
+
+    res.json({
+      status: deadLettered > 0 ? "degraded" : "healthy",
+      tasks: { pending, processing, failed, deadLettered, completed },
+      outbox: { pending: outboxPending, deadLettered: outboxDeadLettered },
+      workerRunning: !!backgroundWorkerService.intervalId,
+      reconRunning: !!indexerService.reconIntervalId,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to query worker health" });
+  }
+});
+
 // ─── Health Check ────────────────────────────────────────────────────
 app.get("/api/health", async (req, res) => {
   let redisStatus = "disconnected";
@@ -162,6 +197,38 @@ app.use((err, req, res, next) => {
   });
 });
 
+// ─── Scheduled Tasks ─────────────────────────────────────────────────
+/**
+ * Schedule a daily LEDGER_RECONCILE task to cross-check on-chain state vs DB.
+ * Uses a simple setInterval rather than a full cron dependency.
+ */
+function scheduleLedgerReconciliation() {
+  const INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+  const enqueue = async () => {
+    try {
+      // Avoid duplicates: only create if no unfinished reconciliation exists
+      const existing = await BackgroundTask.findOne({
+        type: "LEDGER_RECONCILE",
+        status: { $in: ["PENDING", "PROCESSING"] },
+      });
+      if (!existing) {
+        await BackgroundTask.create({
+          type: "LEDGER_RECONCILE",
+          payload: { scope: "daily", triggeredBy: "scheduler" },
+        });
+        console.log("[Scheduler] Daily LEDGER_RECONCILE task enqueued");
+      }
+    } catch (err) {
+      console.error("[Scheduler] Failed to enqueue reconciliation:", err.message);
+    }
+  };
+
+  // First run 30 s after boot, then every 24 h
+  setTimeout(enqueue, 30_000);
+  setInterval(enqueue, INTERVAL_MS);
+}
+
 // ─── Start Server ────────────────────────────────────────────────────
 const http = require("http");
 const realtimeService = require("./services/realtimeService");
@@ -197,15 +264,23 @@ async function startServer() {
         if (indexerService.startReconciliation) {
           indexerService.startReconciliation();
         }
+
+        // Institutional Hardening: Schedule daily ledger reconciliation
+        scheduleLedgerReconciliation();
       }
     });
 
     // ─── Graceful Shutdown ─────────────────────────────────────────────
     const shutdown = async (signal) => {
-      console.log(`\n[${signal}] Termination signal received. Closing institutional node...`);
+      console.log(`\n[${signal}] Termination signal received. Draining workers...`);
+
+      // 1. Stop accepting new work
+      backgroundWorkerService.stop();
+      if (indexerService.stopReconciliation) indexerService.stopReconciliation();
+      oracleService.stopHeartbeat();
+
       server.close(async () => {
         try {
-          // Close DB and Redis
           const mongoose = require("mongoose");
           await mongoose.connection.close();
           await redis.quit();
@@ -216,6 +291,12 @@ async function startServer() {
           process.exit(1);
         }
       });
+
+      // Force-exit after 15 s if draining stalls
+      setTimeout(() => {
+        console.error("Graceful shutdown timed out — forcing exit");
+        process.exit(1);
+      }, 15_000).unref();
     };
 
     process.on("SIGTERM", () => shutdown("SIGTERM"));

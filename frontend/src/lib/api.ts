@@ -24,6 +24,17 @@ class ApiClient {
     });
   }
 
+  async getWorkerHealth() {
+    return this.request<{
+      status: string;
+      tasks: { pending: number; processing: number; failed: number; deadLettered: number; completed: number };
+      outbox: { pending: number; deadLettered: number };
+      workerRunning: boolean;
+      reconRunning: boolean;
+      timestamp: string;
+    }>('/admin/worker-health');
+  }
+
   /**
    * Set the active SIWS session. This must be called after a successful 
    * wallet.signMessage() to enable authorized requests.
@@ -761,10 +772,6 @@ class ApiClient {
     return res.text();
   }
 
-  // ─── Oracle Circuit Breaker ───────────────────────────────
-  async getOracleStatus(assetId: string) {
-    return this.request<any>(`/oracle/history/${assetId}?days=1`);
-  }
 }
 
 export const api = new ApiClient();

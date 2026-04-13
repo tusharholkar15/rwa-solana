@@ -5,13 +5,19 @@ const backgroundTaskSchema = new mongoose.Schema(
     type: {
       type: String,
       required: true,
-      enum: ["TRANSFER_AGENT_SYNC", "REGULATORY_REPORT", "NOTIFICATION", "LEDGER_RECONCILE"],
+      enum: [
+        "TRANSFER_AGENT_SYNC",
+        "REGULATORY_REPORT",
+        "NOTIFICATION",
+        "LEDGER_RECONCILE",
+        "OUTBOX_DISPATCH",
+      ],
       index: true,
     },
     status: {
       type: String,
       required: true,
-      enum: ["PENDING", "PROCESSING", "COMPLETED", "FAILED"],
+      enum: ["PENDING", "PROCESSING", "COMPLETED", "FAILED", "DEAD_LETTER"],
       default: "PENDING",
       index: true,
     },
@@ -23,6 +29,10 @@ const backgroundTaskSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    maxAttempts: {
+      type: Number,
+      default: 5,
+    },
     lastError: String,
     processAfter: {
       type: Date,
@@ -30,6 +40,7 @@ const backgroundTaskSchema = new mongoose.Schema(
       index: true,
     },
     completedAt: Date,
+    deadLetteredAt: Date,
     relatedObjectId: {
       type: mongoose.Schema.Types.ObjectId,
       index: true,

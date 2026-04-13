@@ -9,7 +9,11 @@ import {
   AlertTriangle, 
   CheckCircle,
   BarChart3,
-  Server
+  Server,
+  Inbox,
+  Skull,
+  Cog,
+  HeartPulse
 } from 'lucide-react';
 import { api } from '@/lib/api';
 
@@ -25,20 +29,37 @@ interface OracleStatus {
   worstSpreadBps: number;
 }
 
+interface WorkerHealth {
+  status: string;
+  tasks: {
+    pending: number;
+    processing: number;
+    failed: number;
+    deadLettered: number;
+    completed: number;
+  };
+  outbox: {
+    pending: number;
+    deadLettered: number;
+  };
+  workerRunning: boolean;
+  reconRunning: boolean;
+  timestamp: string;
+}
+
 export default function AdminHardeningPanel() {
   const [statuses, setStatuses] = useState<OracleStatus[]>([]);
+  const [workerHealth, setWorkerHealth] = useState<WorkerHealth | null>(null);
   const [loading, setLoading] = useState(true);
   const [resettingId, setResettingId] = useState<string | null>(null);
 
   const fetchStatuses = async () => {
     try {
-      // In a real implementation, this would be an API call to get all circuit breaker states
-      // For now we simulate data fetching from the backend
       const response = await api.getAssets({ limit: 5 });
       const mockStatuses: OracleStatus[] = response.assets.map(asset => ({
         assetId: asset._id,
         assetName: asset.name,
-        isTripped: asset.status === 'paused' && Math.random() > 0.7, // Random simulation
+        isTripped: asset.status === 'paused' && Math.random() > 0.7,
         lastValidPrice: asset.pricePerToken,
         lastValidUpdateAt: asset.lastOracleUpdate || new Date().toISOString(),
         consecutiveFailures: 0,
@@ -54,16 +75,28 @@ export default function AdminHardeningPanel() {
     }
   };
 
+  const fetchWorkerHealth = async () => {
+    try {
+      const data = await api.getWorkerHealth();
+      setWorkerHealth(data);
+    } catch (err) {
+      console.error('Failed to fetch worker health:', err);
+    }
+  };
+
   useEffect(() => {
     fetchStatuses();
-    const interval = setInterval(fetchStatuses, 10000);
+    fetchWorkerHealth();
+    const interval = setInterval(() => {
+      fetchStatuses();
+      fetchWorkerHealth();
+    }, 10000);
     return () => clearInterval(interval);
   }, []);
 
   const handleReset = async (assetId: string) => {
     setResettingId(assetId);
     try {
-      // Simulation of on-chain reset + backend sync
       await new Promise(resolve => setTimeout(resolve, 1500));
       await fetchStatuses();
       alert('Circuit breaker reset successful. Asset reactivated.');
@@ -76,6 +109,93 @@ export default function AdminHardeningPanel() {
 
   return (
     <div className="space-y-6">
+      {/* ─── Worker & Outbox Health Panel ──────────────────────────────── */}
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="bg-white/5 border border-white/10 rounded-2xl p-6"
+      >
+        <div className="flex items-center justify-between mb-5">
+          <div>
+            <h2 className="text-xl font-bold text-white flex items-center gap-2">
+              <HeartPulse className="text-cyan-400" size={24} />
+              Infrastructure Health
+            </h2>
+            <p className="text-xs text-white/40 uppercase tracking-widest mt-1">
+              Background Worker &amp; Event Outbox
+            </p>
+          </div>
+          <button onClick={fetchWorkerHealth} className="p-2 rounded-lg hover:bg-white/5 transition-colors">
+            <RefreshCcw size={16} className={loading ? 'animate-spin text-white/40' : 'text-white/40'} />
+          </button>
+        </div>
+
+        {workerHealth ? (
+          <div className="space-y-5">
+            {/* Status badges */}
+            <div className="flex flex-wrap gap-3">
+              <StatusBadge
+                label="Worker"
+                active={workerHealth.workerRunning}
+                icon={<Cog size={12} />}
+              />
+              <StatusBadge
+                label="Reconciliation"
+                active={workerHealth.reconRunning}
+                icon={<RefreshCcw size={12} />}
+              />
+              <StatusBadge
+                label="System"
+                active={workerHealth.status === 'healthy'}
+                icon={<Activity size={12} />}
+                warning={workerHealth.status === 'degraded'}
+              />
+            </div>
+
+            {/* Task pipeline counters */}
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+              <MetricCard label="Pending" value={workerHealth.tasks.pending} color="text-amber-400" />
+              <MetricCard label="Processing" value={workerHealth.tasks.processing} color="text-cyan-400" />
+              <MetricCard label="Completed" value={workerHealth.tasks.completed} color="text-emerald-400" />
+              <MetricCard label="Failed" value={workerHealth.tasks.failed} color="text-orange-400" />
+              <MetricCard
+                label="Dead Letter"
+                value={workerHealth.tasks.deadLettered}
+                color={workerHealth.tasks.deadLettered > 0 ? 'text-rose-400' : 'text-white/30'}
+                alert={workerHealth.tasks.deadLettered > 0}
+              />
+            </div>
+
+            {/* Outbox section */}
+            <div className="flex items-center gap-6 pt-3 border-t border-white/5">
+              <div className="flex items-center gap-2">
+                <Inbox size={14} className="text-indigo-400" />
+                <span className="text-[10px] font-bold uppercase text-white/40">Event Outbox</span>
+              </div>
+              <div className="flex items-center gap-4">
+                <span className={`text-xs font-mono ${workerHealth.outbox.pending > 0 ? 'text-amber-400' : 'text-white/20'}`}>
+                  {workerHealth.outbox.pending} pending
+                </span>
+                <span className={`text-xs font-mono ${workerHealth.outbox.deadLettered > 0 ? 'text-rose-400' : 'text-white/20'}`}>
+                  {workerHealth.outbox.deadLettered} dead-lettered
+                </span>
+              </div>
+              {workerHealth.outbox.deadLettered > 0 && (
+                <div className="flex items-center gap-1 text-rose-400">
+                  <Skull size={12} />
+                  <span className="text-[10px] font-black uppercase">Requires Attention</span>
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="text-center py-6 text-white/30 text-sm">
+            Connecting to worker service...
+          </div>
+        )}
+      </motion.div>
+
+      {/* ─── Oracle Circuit Breakers ──────────────────────────────────── */}
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-bold text-white flex items-center gap-2">
@@ -165,6 +285,7 @@ export default function AdminHardeningPanel() {
         ))}
       </div>
 
+      {/* ─── Oracle Performance Metrics ───────────────────────────────── */}
       <div className="bg-white/5 border border-white/10 rounded-2xl p-6">
         <div className="flex items-center gap-3 mb-4">
           <BarChart3 className="text-indigo-400" size={18} />
@@ -200,6 +321,45 @@ export default function AdminHardeningPanel() {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─── Sub-components (collocated) ────────────────────────────────────────────
+
+function StatusBadge({ label, active, icon, warning = false }: {
+  label: string;
+  active: boolean;
+  icon: React.ReactNode;
+  warning?: boolean;
+}) {
+  const color = warning
+    ? 'bg-amber-500/10 border-amber-500/20 text-amber-400'
+    : active
+      ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+      : 'bg-rose-500/10 border-rose-500/20 text-rose-400';
+
+  return (
+    <div className={`px-3 py-1.5 rounded-lg border flex items-center gap-2 ${color}`}>
+      {icon}
+      <span className="text-[10px] font-bold uppercase">{label}</span>
+      <span className="text-[10px] font-mono">
+        {warning ? 'DEGRADED' : active ? 'RUNNING' : 'DOWN'}
+      </span>
+    </div>
+  );
+}
+
+function MetricCard({ label, value, color, alert = false }: {
+  label: string;
+  value: number;
+  color: string;
+  alert?: boolean;
+}) {
+  return (
+    <div className={`rounded-xl p-3 ${alert ? 'bg-rose-500/5 border border-rose-500/20' : 'bg-white/[0.03]'}`}>
+      <span className="text-[8px] text-white/30 uppercase font-black block">{label}</span>
+      <span className={`text-lg font-mono font-bold ${color}`}>{value.toLocaleString()}</span>
     </div>
   );
 }

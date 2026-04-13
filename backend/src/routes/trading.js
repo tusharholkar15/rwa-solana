@@ -377,7 +377,7 @@ router.post("/sell", requireWalletSignature, validateTradeRequest, async (req, r
       await transferAgentService.queueTransfer(
         asset._id,
         walletAddress,
-        "REdemption_TREASURY",
+        "REDEMPTION_TREASURY",
         shares,
         session
       );

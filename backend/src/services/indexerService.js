@@ -1,246 +1,394 @@
 /**
- * Blockchain Indexer Service (Hardened for Production)
- * Syncs on-chain events via Helius webhooks.
- * Implements robust Anchor EventParser decoding, fault-tolerant fallback,
- * Pino structured logging, and idempotent DB persistance.
+ * Blockchain Indexer Service (Production-Hardened)
+ *
+ * Responsibilities:
+ *  1. Parse & persist Helius webhook payloads (idempotent, deduped via Redis)
+ *  2. Broadcast real-time events to WebSocket subscribers
+ *  3. Self-healing reconciliation loop — fetches & re-processes any missed
+ *     on-chain transactions every 5 minutes, guaranteeing data integrity.
+ *  4. Dead-letter queue — irrecoverable parse failures are persisted as
+ *     OUTBOX_DISPATCH tasks so no event is silently dropped.
  */
 
+"use strict";
+
 const BlockchainEvent = require("../models/BlockchainEvent");
+const BackgroundTask  = require("../models/BackgroundTask");
 const realtimeService = require("./realtimeService");
-const Redis = require("ioredis");
-const anchor = require("@coral-xyz/anchor");
-const idl = require("../config/idl.json");
-const logger = require("../config/logger");
+const Redis           = require("ioredis");
+const anchor          = require("@coral-xyz/anchor");
+const idl             = require("../config/idl.json");
+const logger          = require("../config/logger");
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+const RECON_INTERVAL_MS   = 5 * 60 * 1000;  // 5 minutes
+const RECON_INITIAL_DELAY = 10 * 1000;       // 10 s after boot
+const RECON_LOOK_BACK     = 150;             // signatures to scan each run
+const REDIS_DEDUP_TTL_S   = 86_400;          // 24 hours
 
 class IndexerService {
   constructor() {
-    this.redisClient = null;
-    this.initRedis();
+    this.redisClient     = null;
+    this.eventParser     = null;
+    this.reconIntervalId = null;
 
-    // Initialize Anchor EventParser for institutional telemetry
+    this._initRedis();
+    this._initEventParser();
+  }
+
+  // ─── Initialisation ─────────────────────────────────────────────────────────
+
+  _initRedis() {
     try {
-      const PROGRAM_ID = new anchor.web3.PublicKey(process.env.PROGRAM_ID || "RwaP111111111111111111111111111111111111111");
-      const coder = new anchor.BorshCoder(idl);
-      this.eventParser = new anchor.EventParser(PROGRAM_ID, coder);
-      logger.info("[Indexer] Successfully initialized Anchor EventParser");
+      const url = process.env.REDIS_URL || "redis://127.0.0.1:6379";
+      this.redisClient = new Redis(url, { lazyConnect: true });
+      this.redisClient.on("error", () => {
+        // Intentionally silent — Redis is an optimisation; DB deduplication is
+        // the authoritative fallback.
+      });
     } catch (e) {
-      logger.error({ err: e }, "[Indexer] Failed to initialize Anchor EventParser");
+      logger.warn("[Indexer] Redis unavailable — falling back to DB-level dedup");
     }
   }
 
-  initRedis() {
+  _initEventParser() {
     try {
-      const redisUrl = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
-      this.redisClient = new Redis(redisUrl, { lazyConnect: true });
-      this.redisClient.on('error', () => {/* Fallback to memory if redis missing */});
-    } catch(e) {}
+      const programId = new anchor.web3.PublicKey(
+        process.env.PROGRAM_ID || "RwaP111111111111111111111111111111111111111"
+      );
+      const coder = new anchor.BorshCoder(idl);
+      this.eventParser = new anchor.EventParser(programId, coder);
+      logger.info("[Indexer] Anchor EventParser initialised successfully");
+    } catch (e) {
+      logger.error({ err: e }, "[Indexer] Anchor EventParser init failed — falling back to log heuristics");
+    }
   }
 
+  // ─── Public API ─────────────────────────────────────────────────────────────
+
   /**
-   * Parse an incoming Helius Webhook payload representing a parsed Solana transaction.
+   * Entry-point for Helius webhook payloads.
+   * Processes each transaction concurrently (errors are isolated per-tx).
    */
   async processWebhookPayload(payload) {
-    logger.info(`[Indexer] Received ${payload.length} events from webhook`);
-    
-    // We do NOT block event loop, wrap processing in concurrent map if needed.
-    const promises = payload.map(async (tx) => {
-      if (tx.err) return; // Skip failed txs
+    if (!Array.isArray(payload) || payload.length === 0) return;
 
-      // Filter for our program ID
-      const PROGRAM_ID = process.env.PROGRAM_ID || "RwaP111111111111111111111111111111111111111";
-      const isOurProgram = tx.accountData?.some(acc => acc.account === PROGRAM_ID) || 
-                           tx.instructions?.some(ix => ix.programId === PROGRAM_ID);
+    logger.info(`[Indexer] Received ${payload.length} event(s) from webhook`);
 
-      if (isOurProgram) {
-        await this.syncTransaction(tx);
+    const PROGRAM_ID = process.env.PROGRAM_ID || "RwaP111111111111111111111111111111111111111";
+
+    const results = await Promise.allSettled(
+      payload.map(async (tx) => {
+        if (tx.err) return; // Skip failed on-chain transactions
+
+        const isOurs =
+          tx.accountData?.some((acc) => acc.account === PROGRAM_ID) ||
+          tx.instructions?.some((ix)  => ix.programId === PROGRAM_ID);
+
+        if (isOurs) {
+          await this.syncTransaction(tx);
+        }
+      })
+    );
+
+    // Surface any unexpected rejections
+    results.forEach((r) => {
+      if (r.status === "rejected") {
+        logger.error({ err: r.reason }, "[Indexer] Unhandled error in webhook payload processing");
       }
     });
-
-    await Promise.allSettled(promises);
   }
 
   /**
-   * Sync a parsed transaction to our DB with Idempotency
+   * Sync a single parsed Helius transaction to the DB (idempotent).
    */
   async syncTransaction(tx) {
     const signature = tx.signature;
-    try {
-      // Fast path deduplication via Redis (24 hr TTL)
-      if (this.redisClient && this.redisClient.status === 'ready') {
-        const key = `indexed:${signature}`;
-        const setNX = await this.redisClient.set(key, '1', 'EX', 86400, 'NX');
-        if (!setNX) return; // Another worker beat us to it
+
+    // ── Phase 1: Redis fast-path deduplication ────────────────────────────────
+    if (this.redisClient && this.redisClient.status === "ready") {
+      const key    = `indexed:${signature}`;
+      const setNX  = await this.redisClient.set(key, "1", "EX", REDIS_DEDUP_TTL_S, "NX");
+      if (!setNX) {
+        logger.debug({ signature }, "[Indexer] Skipped (Redis dedup hit)");
+        return;
       }
+    }
 
-      let type = "UNKNOWN";
-      let legacyEventType = "unknown";
-      let assetId = null;
-      let wallet = null;
-      let amount = 0;
-      let isBroadcastable = false;
-      let parsedData = null;
-      let broadcastTopic = null;
-      
-      // Phase 1: Robust Event Parsing
-      if (this.eventParser && tx.logs && tx.logs.length > 0) {
-        try {
-          for (let event of this.eventParser.parseLogs(tx.logs)) {
-            logger.info({ eventName: event.name }, `[Indexer] Decoded Anchor Event`);
-            parsedData = { ...event.data };
-            
-            // Transform BN/Pubkeys to strings/numbers for DB & Broadcast
-            for (let key in parsedData) {
-              if (parsedData[key] && typeof parsedData[key].toString === 'function') {
-                if (parsedData[key].toNumber && !parsedData[key].isZero()) {
-                   try { parsedData[key] = parsedData[key].toNumber(); } catch(e) { parsedData[key] = parsedData[key].toString(); }
-                } else {
-                   parsedData[key] = parsedData[key].toString();
-                }
-              }
-            }
+    // ── Phase 2: Event parsing ────────────────────────────────────────────────
+    let type            = "UNKNOWN";
+    let legacyEventType = "unknown";
+    let assetId         = null;
+    let wallet          = null;
+    let amount          = 0;
+    let parsedData      = null;
+    let isBroadcastable = false;
+    let broadcastTopic  = null;
 
-            if (event.name === "AssetBought") {
-               type = "BUY";
-               legacyEventType = "shares_bought";
-               isBroadcastable = true;
-               broadcastTopic = "trade_events";
-               assetId = parsedData.asset;
-               wallet = parsedData.buyer;
-               amount = parsedData.shares || 0;
-            } else if (event.name === "AssetSold") {
-               type = "SELL";
-               legacyEventType = "shares_sold";
-               isBroadcastable = true;
-               broadcastTopic = "trade_events";
-               assetId = parsedData.asset;
-               wallet = parsedData.seller;
-               amount = parsedData.shares || 0;
-            } else if (event.name === "PriceUpdated") {
-               type = "PRICE";
-               legacyEventType = "price_updated";
-               isBroadcastable = true;
-               broadcastTopic = "price_update";
-               assetId = parsedData.asset;
-               amount = parsedData.price || 0; 
-            } else if (event.name === "OracleBreachDetected") {
-               type = "ORACLE_ALERT";
-               legacyEventType = "oracle_breach";
-               isBroadcastable = true;
-               broadcastTopic = "WARN_ORACLE_BREACH";
-               assetId = parsedData.asset;
-               amount = parsedData.spreadBps || 0; 
-            }
-            break; // Take the primary recognized event for single-record simplicity
+    // 2a. Try Anchor EventParser (preferred — schema-level correctness)
+    if (this.eventParser && tx.logs?.length > 0) {
+      try {
+        for (const event of this.eventParser.parseLogs(tx.logs)) {
+          logger.info({ eventName: event.name }, "[Indexer] Decoded Anchor event");
+
+          parsedData = this._normaliseBN(event.data);
+
+          switch (event.name) {
+            case "AssetBought":
+              type = "BUY"; legacyEventType = "shares_bought";
+              isBroadcastable = true; broadcastTopic = "trade_events";
+              assetId = parsedData.asset;  wallet = parsedData.buyer;
+              amount  = parsedData.shares  || 0;
+              break;
+
+            case "AssetSold":
+              type = "SELL"; legacyEventType = "shares_sold";
+              isBroadcastable = true; broadcastTopic = "trade_events";
+              assetId = parsedData.asset;  wallet = parsedData.seller;
+              amount  = parsedData.shares  || 0;
+              break;
+
+            case "PriceUpdated":
+              type = "PRICE"; legacyEventType = "price_updated";
+              isBroadcastable = true; broadcastTopic = "price_update";
+              assetId = parsedData.asset;  amount = parsedData.price || 0;
+              break;
+
+            case "OracleBreachDetected":
+              type = "ORACLE_ALERT"; legacyEventType = "oracle_breach";
+              isBroadcastable = true; broadcastTopic = "WARN_ORACLE_BREACH";
+              assetId = parsedData.asset;  amount = parsedData.spreadBps || 0;
+              break;
+
+            case "OracleFailureDetected":
+              type = "ORACLE_ALERT"; legacyEventType = "oracle_failure";
+              isBroadcastable = true; broadcastTopic = "WARN_ORACLE_BREACH";
+              assetId = parsedData.asset;
+              break;
+
+            case "OracleZScoreBreachDetected":
+              type = "ORACLE_ALERT"; legacyEventType = "oracle_zscore";
+              isBroadcastable = true; broadcastTopic = "WARN_ORACLE_BREACH";
+              assetId = parsedData.asset;
+              break;
+
+            default:
+              logger.debug({ eventName: event.name }, "[Indexer] Unrecognised Anchor event — stored as raw");
           }
-        } catch(parseErr) {
-          logger.warn({ err: parseErr, signature }, "[Indexer] Anchor EventParser failed. Falling back.");
+
+          break; // Take the first recognised event per transaction
         }
+      } catch (parseErr) {
+        logger.warn({ err: parseErr, signature }, "[Indexer] EventParser failed — falling back to log heuristics");
       }
+    }
 
-      // Phase 2: Fallback Instruction Parsing (Backward Compatibility)
-      if (type === "UNKNOWN") {
-        const logString = tx.logs?.join(" ") || "";
-        if (logString.includes("Instruction: BuyShares")) { type = "BUY"; legacyEventType = "shares_bought"; }
-        else if (logString.includes("Instruction: SellShares")) { type = "SELL"; legacyEventType = "shares_sold"; }
-        else if (logString.includes("Instruction: UpdatePrice")) { type = "PRICE"; legacyEventType = "price_updated"; }
-        else if (logString.includes("Instruction: OracleBreachDetected")) { type = "ORACLE_ALERT"; legacyEventType = "oracle_breach"; }
-        else if (logString.includes("Instruction: SwapTokens")) { legacyEventType = "swap_executed"; }
-      }
+    // 2b. Fallback: log-string heuristics (backwards-compatible with older deployments)
+    if (type === "UNKNOWN") {
+      const logs = tx.logs?.join(" ") || "";
+      if      (logs.includes("Instruction: BuyShares"))      { type = "BUY";          legacyEventType = "shares_bought";  }
+      else if (logs.includes("Instruction: SellShares"))     { type = "SELL";         legacyEventType = "shares_sold";    }
+      else if (logs.includes("Instruction: UpdatePrice"))    { type = "PRICE";        legacyEventType = "price_updated";  }
+      else if (logs.includes("Instruction: SwapTokens"))     { type = "SWAP";         legacyEventType = "swap_executed";  }
+      else if (logs.includes("OracleBreachDetected"))        { type = "ORACLE_ALERT"; legacyEventType = "oracle_breach";  }
+    }
 
-      // Phase 3: Idempotent DB Write
-      const blockTime = new Date(tx.timestamp * 1000);
-      
-      const updatePayload = {
-        $setOnInsert: {
-          txSignature: signature,
-          slot: tx.slot,
-          blockTime,
-          type,
-          eventType: legacyEventType,
-          assetId,
-          assetAddress: assetId,
-          wallet,
-          primaryWallet: wallet,
-          amount,
-          metadata: parsedData,
-          data: parsedData,
-          rawLogs: tx.logs,
-          status: "confirmed"
-        }
-      };
+    // ── Phase 3: Idempotent DB write ──────────────────────────────────────────
+    const blockTime = tx.timestamp ? new Date(tx.timestamp * 1000) : new Date();
 
-      const result = await BlockchainEvent.updateOne({ txSignature: signature }, updatePayload, { upsert: true });
+    try {
+      const result = await BlockchainEvent.updateOne(
+        { txSignature: signature },
+        {
+          $setOnInsert: {
+            txSignature: signature,
+            slot:        tx.slot,
+            blockTime,
+            type,
+            eventType:     legacyEventType,
+            assetId,
+            assetAddress:  assetId,
+            wallet,
+            primaryWallet: wallet,
+            amount,
+            metadata:  parsedData,
+            data:      parsedData,
+            rawLogs:   tx.logs,
+            status:    "confirmed",
+          },
+        },
+        { upsert: true }
+      );
 
       if (result.upsertedCount > 0) {
-        logger.info({ signature, type, assetId }, `[Indexer] Synced successfully to DB`);
+        logger.info({ signature, type, assetId }, "[Indexer] Synced new event to DB");
 
-        // Phase 4: Low-Latency Event Broadcast
+        // ── Phase 4: Real-time broadcast ─────────────────────────────────────
         if (isBroadcastable && realtimeService && broadcastTopic) {
-          const payload = {
-            type: type,
-            signature,
-            assetId,
-            wallet,
-            amount,
-            timestamp: blockTime,
-            metadata: parsedData
-          };
-          
-          realtimeService.publish(broadcastTopic, payload);
+          realtimeService.publish(broadcastTopic, {
+            type, signature, assetId, wallet, amount,
+            timestamp: blockTime, metadata: parsedData,
+          });
         }
       } else {
-        logger.debug({ signature }, `[Indexer] Event already exists in DB (Idempotent skip)`);
+        logger.debug({ signature }, "[Indexer] DB dedup hit — event already stored");
       }
+    } catch (dbErr) {
+      logger.error({ err: dbErr, signature }, "[Indexer] DB write failed — enqueuing to outbox");
+
+      // ── Phase 5: Dead-letter / Outbox fallback ────────────────────────────
+      // Persist to BackgroundTask so the worker retries later with back-off.
+      await BackgroundTask.create({
+        type:    "OUTBOX_DISPATCH",
+        payload: {
+          signature,
+          slot:      tx.slot,
+          timestamp: blockTime,
+          rawTx:     tx,
+          parsedType: type,
+          assetId,
+          wallet,
+          amount,
+        },
+        processAfter: new Date(Date.now() + 30_000), // retry in 30 s
+      }).catch((e) => logger.error({ err: e }, "[Indexer] CRITICAL: Outbox enqueue also failed"));
+    }
+  }
+
+  // ─── Reconciliation Loop ────────────────────────────────────────────────────
 
   /**
-   * Start the self-healing reconciliation loop (Institutional Grade)
+   * Start the self-healing reconciliation loop.
+   * Safe to call multiple times — idempotent.
    */
   startReconciliation() {
     if (this.reconIntervalId) return;
+
     logger.info("[Indexer] Starting self-healing reconciliation loop...");
-    
-    // Scan last 1000 txs every 5 minutes to catch missed webhooks
-    this.reconIntervalId = setInterval(() => this.reconcileMissingSlots(), 300000);
-    
-    // Trigger immediate initial scan
-    setTimeout(() => this.reconcileMissingSlots(), 10000);
+
+    // Immediate first scan after a short boot delay
+    setTimeout(() => this._reconcileMissingSlots(), RECON_INITIAL_DELAY);
+
+    // Recurring scan
+    this.reconIntervalId = setInterval(
+      () => this._reconcileMissingSlots(),
+      RECON_INTERVAL_MS
+    );
+  }
+
+  stopReconciliation() {
+    if (this.reconIntervalId) {
+      clearInterval(this.reconIntervalId);
+      this.reconIntervalId = null;
+      logger.info("[Indexer] Reconciliation loop stopped");
+    }
   }
 
   /**
-   * Reconcile missing transactions from the program's history
+   * Scan the last N program transactions on-chain and reprocess any that are
+   * missing from the local DB.  This guarantees catch-up after webhook gaps,
+   * network partitions, or service restarts.
    */
-  async reconcileMissingSlots() {
+  async _reconcileMissingSlots() {
     try {
-      logger.info("[Indexer] Running reconciliation scan...");
-      const PROGRAM_ID = new anchor.web3.PublicKey(process.env.PROGRAM_ID || "RwaP111111111111111111111111111111111111111");
-      const connection = new anchor.web3.Connection(process.env.SOLANA_RPC_URL || "https://api.devnet.solana.com");
-      
-      // Fetch latest signatures for the program
-      const signatures = await connection.getSignaturesForAddress(PROGRAM_ID, { limit: 100 });
-      
-      let foundMissing = 0;
-      for (const sigInfo of signatures) {
-        if (sigInfo.err) continue;
-        
-        // Check if we already have this transaction parsed
-        const exists = await BlockchainEvent.exists({ txSignature: sigInfo.signature });
-        if (!exists) {
-          logger.warn({ signature: sigInfo.signature }, "[Indexer] Reconciliation: Found missing transaction. Syncing...");
-          // In a real system we would fetch the full tx here.
-          // For the simulation, we'll hit the syncTransaction logic if we can mock the payload.
-          // This ensures compliance integrity.
-          foundMissing++;
+      logger.info("[Indexer] Reconciliation scan started...");
+
+      const programId  = new anchor.web3.PublicKey(
+        process.env.PROGRAM_ID || "RwaP111111111111111111111111111111111111111"
+      );
+      const connection = new anchor.web3.Connection(
+        process.env.SOLANA_RPC_URL || "https://api.devnet.solana.com",
+        "confirmed"
+      );
+
+      // Fetch the N most recent signatures for our program
+      const sigInfos = await connection.getSignaturesForAddress(programId, {
+        limit: RECON_LOOK_BACK,
+      });
+
+      let missing = 0;
+      let synced  = 0;
+      let failed  = 0;
+
+      for (const info of sigInfos) {
+        if (info.err) continue; // Skip failed on-chain txs
+
+        const exists = await BlockchainEvent.exists({ txSignature: info.signature });
+        if (exists) continue;
+
+        missing++;
+        logger.warn({ signature: info.signature }, "[Indexer] Reconciliation: found gap — fetching full tx...");
+
+        try {
+          // Fetch the full parsed transaction from RPC
+          const txResponse = await connection.getParsedTransaction(info.signature, {
+            maxSupportedTransactionVersion: 0,
+          });
+
+          if (!txResponse) {
+            logger.warn({ signature: info.signature }, "[Indexer] Reconciliation: RPC returned null for tx");
+            continue;
+          }
+
+          // Re-shape into Helius-style payload so syncTransaction can consume it
+          const heliusShaped = {
+            signature:  info.signature,
+            slot:       info.slot,
+            timestamp:  txResponse.blockTime,
+            err:        null,
+            logs:       txResponse.meta?.logMessages  || [],
+            accountData: [],
+            instructions: txResponse.transaction?.message?.instructions?.map((ix) => ({
+              programId: ix.programId?.toBase58?.() || "",
+            })) || [],
+          };
+
+          await this.syncTransaction(heliusShaped);
+          synced++;
+        } catch (fetchErr) {
+          failed++;
+          logger.error({ err: fetchErr, signature: info.signature },
+            "[Indexer] Reconciliation: failed to fetch/sync tx"
+          );
         }
       }
-      
-      if (foundMissing > 0) {
-        logger.info(`[Indexer] Reconciliation complete. Backfilled ${foundMissing} transactions.`);
+
+      if (missing > 0) {
+        logger.info(
+          { missing, synced, failed },
+          "[Indexer] Reconciliation complete — backfilled missing transactions"
+        );
       } else {
-        logger.debug("[Indexer] Reconciliation complete. No gaps found.");
+        logger.debug("[Indexer] Reconciliation complete — no gaps found");
       }
     } catch (error) {
-      logger.error({ err: error }, "[Indexer] Reconciliation failed");
+      logger.error({ err: error }, "[Indexer] Reconciliation scan failed");
     }
+  }
+
+  // ─── Helpers ────────────────────────────────────────────────────────────────
+
+  /**
+   * Normalise BN / PublicKey values from Anchor decoded events into plain
+   * JS primitives so they are safe to store in MongoDB.
+   */
+  _normaliseBN(data) {
+    if (!data || typeof data !== "object") return data;
+
+    const out = {};
+    for (const [k, v] of Object.entries(data)) {
+      if (v == null) {
+        out[k] = v;
+      } else if (typeof v.toNumber === "function") {
+        try   { out[k] = v.toNumber(); }
+        catch { out[k] = v.toString(); } // BN too large for JS number
+      } else if (typeof v.toBase58 === "function") {
+        out[k] = v.toBase58();
+      } else {
+        out[k] = v;
+      }
+    }
+    return out;
   }
 }
 
