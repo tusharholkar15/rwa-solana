@@ -149,12 +149,29 @@ class OracleService {
               asset: assetPubkey,
               circuitBreaker: cbAddress,
               priceUpdate: PYTH_PRICE_UPDATE_DEVNET,
+              switchboardAggregator: asset.switchboardAggregator || PublicKey.default, // New account in UpdatePrice
               priceHistory: historyAddress,
             })
             .rpc();
 
           logger.info({ tx, assetId: asset._id }, "[OracleService] Solana sync SUCCESS");
           activeProviders.push("SOLANA_SYNCED");
+
+          // ── Step 2: Post-Sync Reconciliation ───────────────────────────────
+          // Fetch the on-chain circuit breaker state to ensure DB matches reality
+          const solanaService = require("./solanaService");
+          const cbState = await solanaService.getCircuitBreakerState(asset.onChainAddress);
+          if (cbState) {
+            asset.circuitBreaker = cbState;
+            // Also sync the top-level isActive flag
+            asset.isActive = !cbState.isTripped;
+            if (cbState.isTripped) {
+              asset.status = "paused";
+              asset.pausalReason = `CIRCUIT_BREAKER_${cbState.tripReason.toUpperCase()}`;
+            }
+            await asset.save();
+            logger.info({ assetId: asset._id, isTripped: cbState.isTripped }, "[OracleService] On-chain state RECONCILED");
+          }
         } catch (solErr) {
           logger.error({ err: solErr.message, assetId: asset._id }, "[OracleService] Solana sync FAILED");
           activeProviders.push("SOLANA_SYNC_ERROR");

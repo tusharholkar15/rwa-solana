@@ -50,11 +50,13 @@ pub mod rwa_tokenization {
     }
 
     /// Claim accrued yield from the global pool (Scalable Distribution)
+    /// Realizes the user's portion of global SOL yield based on their share count.
     pub fn claim_yield(ctx: Context<ClaimYield>) -> Result<()> {
         instructions::claim_yield::handler(ctx)
     }
 
     /// Whitelist a KYC-verified user for trading
+    /// Assigns compliance metadata to a wallet address.
     pub fn whitelist_user(ctx: Context<WhitelistUser>) -> Result<()> {
         instructions::whitelist_user::handler(ctx)
     }
@@ -95,11 +97,13 @@ pub mod rwa_tokenization {
     }
 
     /// Update asset price from oracle feeds
+    /// Validates Pyth, Switchboard, and TWAP sources with circuit-breaker protection.
     pub fn update_price(ctx: Context<UpdatePrice>, switchboard_price: u64, twap_price: u64) -> Result<()> {
         instructions::update_price::handler(ctx, switchboard_price, twap_price)
     }
 
     /// Reset the oracle circuit breaker
+    /// Recovery mechanism for authorized guardians after an anomaly has been resolved.
     pub fn reset_circuit_breaker(ctx: Context<ResetCircuitBreaker>) -> Result<()> {
         instructions::update_price::reset_circuit_breaker_handler(ctx)
     }
@@ -247,11 +251,13 @@ pub mod rwa_tokenization {
     }
 
     /// Cast a vote on a governance proposal
+    /// Enforces a minimum token hold period (flash-loan guard).
     pub fn cast_vote(ctx: Context<CastVote>, vote: VoteChoice) -> Result<()> {
         instructions::cast_vote::handler(ctx, vote)
     }
 
     /// Delegate governance voting power
+    /// Allows institutional holders to delegate proxy rights to sub-managers.
     pub fn delegate_vote(ctx: Context<DelegateVote>) -> Result<()> {
         instructions::cast_vote::delegate_handler(ctx)
     }

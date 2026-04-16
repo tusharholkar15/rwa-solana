@@ -114,24 +114,20 @@ pub fn handler(ctx: Context<BuyShares>, amount: u64) -> Result<()> {
         ctx.accounts.user_ownership.yield_debt = 0;
     }
 
-    // Update user ownership record
+    // Update user ownership record via centralized acquisition method
     let ownership = &mut ctx.accounts.user_ownership;
     if ownership.shares_owned == 0 {
         ownership.owner = ctx.accounts.buyer.key();
         ownership.asset = ctx.accounts.asset.key();
         ownership.first_purchase_at = clock.unix_timestamp;
-        ownership.avg_purchase_price = asset.price_per_token;
-    } else {
-        // Calculate new weighted average price
-        ownership.avg_purchase_price = ownership
-            .calculate_new_avg_price(amount, asset.price_per_token)
-            .ok_or(RwaError::ArithmeticOverflow)?;
     }
-
-    ownership.shares_owned = ownership
-        .shares_owned
-        .checked_add(amount)
-        .ok_or(RwaError::ArithmeticOverflow)?;
+    
+    ownership.record_acquisition(
+        amount, 
+        asset.price_per_token, 
+        clock.slot, 
+        clock.unix_timestamp
+    )?;
 
     // Set Final Yield Debt for new balance
     // new_debt = (new_shares * acc) - absorbed_remainder
@@ -145,9 +141,6 @@ pub fn handler(ctx: Context<BuyShares>, amount: u64) -> Result<()> {
         .total_invested
         .checked_add(total_cost)
         .ok_or(RwaError::ArithmeticOverflow)?;
-    ownership.last_transaction_at = clock.unix_timestamp;
-    // Record slot for flash-loan guard (cast_vote checks this)
-    ownership.last_acquired_slot = clock.slot;
     ownership.bump = ctx.bumps.user_ownership;
 
     emit!(crate::AssetBought {

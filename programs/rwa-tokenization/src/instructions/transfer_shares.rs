@@ -64,19 +64,15 @@ pub fn handler(ctx: Context<TransferShares>, amount: u64) -> Result<()> {
         recipient_ownership.owner = ctx.accounts.recipient.key();
         recipient_ownership.asset = ctx.accounts.asset.key();
         recipient_ownership.first_purchase_at = clock.unix_timestamp;
-        recipient_ownership.avg_purchase_price = asset.price_per_token;
-    } else {
-        recipient_ownership.avg_purchase_price = recipient_ownership
-            .calculate_new_avg_price(amount, asset.price_per_token)
-            .ok_or(RwaError::ArithmeticOverflow)?;
-    }
+    } 
 
-    recipient_ownership.shares_owned = recipient_ownership
-        .shares_owned
-        .checked_add(amount)
-        .ok_or(RwaError::ArithmeticOverflow)?;
-    recipient_ownership.last_transaction_at = clock.unix_timestamp;
-    recipient_ownership.last_acquired_slot = clock.slot; // HARDENING: Lock for governance
+    recipient_ownership.record_acquisition(
+        amount, 
+        asset.price_per_token, 
+        clock.slot, 
+        clock.unix_timestamp
+    )?;
+
     recipient_ownership.bump = ctx.bumps.recipient_ownership;
 
     msg!(

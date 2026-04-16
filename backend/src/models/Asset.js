@@ -172,6 +172,23 @@ const assetSchema = new mongoose.Schema(
       allowedJurisdictions: { type: [String], default: ["GLOBAL"] },
     },
 
+    // ═══════════════════════════════════════════════════════
+    // Oracle & Circuit Breaker State (Institutional Sync)
+    // ═══════════════════════════════════════════════════════
+    circuitBreaker: {
+      isTripped: { type: Boolean, default: false },
+      tripReason: { 
+        type: String, 
+        enum: ["none", "spread", "failure", "zscore", "drift", "manual"],
+        default: "none"
+      },
+      trippedAt: Date,
+      lastValidPrice: Number,
+      worstSpreadBps: Number,
+      consecutiveFailures: { type: Number, default: 0 },
+      lastUpdateSlot: Number,
+    },
+
     // Authority
     authority: {
       type: String,

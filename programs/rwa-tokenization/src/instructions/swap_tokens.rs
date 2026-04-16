@@ -203,14 +203,18 @@ pub fn handler(
         let whitelist = &mut ctx.accounts.user_whitelist;
         whitelist.total_invested = whitelist.total_invested.checked_add(amount_in).ok_or(RwaError::ArithmeticOverflow)?;
 
-        // HARDENING: Sync UserOwnership for Governance & Yield
+        // HARDENING: Sync UserOwnership for Governance & Yield via centralized method
         let ownership = &mut ctx.accounts.user_ownership;
-        ownership.shares_owned = ownership.shares_owned.checked_add(amount_out).ok_or(RwaError::ArithmeticOverflow)?;
-        ownership.last_acquired_slot = clock.slot;
-        ownership.last_transaction_at = clock.unix_timestamp;
+        ownership.record_acquisition(
+            amount_out, 
+            ctx.accounts.asset.price_per_token, // AMM trade recorded at platform valuation
+            clock.slot, 
+            clock.unix_timestamp
+        )?;
     } else {
         // User is selling tokens
         let ownership = &mut ctx.accounts.user_ownership;
+        require!(ownership.shares_owned >= amount_in, RwaError::InsufficientShares);
         ownership.shares_owned = ownership.shares_owned.checked_sub(amount_in).ok_or(RwaError::ArithmeticOverflow)?;
         ownership.last_transaction_at = clock.unix_timestamp;
     }

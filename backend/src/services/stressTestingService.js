@@ -71,6 +71,41 @@ class StressTestingService {
       // The on-chain handler (swap_tokens.rs) will revert this.
     }
   }
+
+  /**
+   * Simulate Oracle Slot-Drift Attack
+   * Attempts to update price with a stale message (manipulated drift).
+   */
+  async simulateSlotDriftAttack(assetId) {
+    logger.warn({ assetId }, "[StressTest] Simulating Oracle Slot-Drift attack...");
+
+    try {
+      // Fetch latest asset state
+      const asset = await Asset.findOne({ onChainAddress: assetId });
+      if (!asset) throw new Error("Asset not found");
+
+      // In a real test environment, we would use a stale Pyth PriceUpdateV2 account.
+      // For this simulation/validation script, we trigger the call and expect 
+      // the on-chain program to return 'OracleSlotDriftExceeded'.
+      const result = await solanaService.updatePrice(assetId, {
+        simulateDrift: true, // Internal flag for test-provider
+        pyth: asset.pricePerToken,
+        switchboard: asset.pricePerToken
+      });
+
+      if (result.error === "OracleSlotDriftExceeded") {
+        logger.info("[StressTest] SUCCESS: Slot-drift correctly detected and blocked by on-chain guard.");
+      } else if (result.isTripped) {
+        logger.info("[StressTest] SUCCESS: Circuit breaker tripped due to consecutive drift failures.");
+      } else {
+        logger.error("[StressTest] FAILURE: Stale price was accepted!");
+      }
+      
+      return result;
+    } catch (err) {
+      logger.error({ err: err.message }, "[StressTest] Slot-drift simulation error");
+    }
+  }
 }
 
 module.exports = new StressTestingService();

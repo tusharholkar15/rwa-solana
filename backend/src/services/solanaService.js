@@ -114,6 +114,45 @@ class SolanaService {
   }
 
   /**
+   * Get circuit breaker PDA info
+   */
+  getCircuitBreakerAddress(assetAddress) {
+    const asset = new PublicKey(assetAddress);
+    const [pda, bump] = PublicKey.findProgramAddressSync(
+      [Buffer.from("circuit_breaker"), asset.toBuffer()],
+      new PublicKey(PROGRAM_ID)
+    );
+    return { address: pda.toBase58(), bump };
+  }
+
+  /**
+   * Fetch and decode on-chain Circuit Breaker state
+   */
+  async getCircuitBreakerState(assetAddress) {
+    try {
+      const { address } = this.getCircuitBreakerAddress(assetAddress);
+      const program = require("../config/anchorClient").getProgram();
+      const state = await program.account.oracleCircuitBreaker.fetch(address);
+      
+      // Map reason codes to strings
+      const reasons = ["none", "spread", "failure", "zscore", "drift", "manual"];
+      
+      return {
+        isTripped: state.isTripped,
+        tripReason: reasons[state.tripReason] || "unknown",
+        trippedAt: state.trippedAt.toNumber() > 0 ? new Date(state.trippedAt.toNumber() * 1000) : null,
+        lastValidPrice: state.lastValidPrice.toNumber() / 1e9,
+        worstSpreadBps: state.worstSpreadBps,
+        consecutiveFailures: state.consecutiveFailures,
+        lastUpdateSlot: state.lastUpdateSlot.toNumber(),
+      };
+    } catch (error) {
+      console.error("Error fetching circuit breaker state:", error);
+      return null;
+    }
+  }
+
+  /**
    * Get cluster info
    */
   async getClusterInfo() {

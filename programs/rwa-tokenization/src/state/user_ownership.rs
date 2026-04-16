@@ -74,4 +74,32 @@ impl UserOwnership {
 
         total_value.checked_div(total_shares)
     }
+
+    /// Record a share acquisition (buy or transfer)
+    /// Atomically updates shares, avg price, last transaction, and governance lock-slot.
+    pub fn record_acquisition(
+        &mut self,
+        amount: u64,
+        price_per_share: u64,
+        slot: u64,
+        timestamp: i64,
+    ) -> Result<()> {
+        if self.shares_owned > 0 {
+            self.avg_purchase_price = self
+                .calculate_new_avg_price(amount, price_per_share)
+                .ok_or(error!(crate::errors::RwaError::ArithmeticOverflow))?;
+        } else {
+            self.avg_purchase_price = price_per_share;
+        }
+
+        self.shares_owned = self
+            .shares_owned
+            .checked_add(amount)
+            .ok_or(error!(crate::errors::RwaError::ArithmeticOverflow))?;
+            
+        self.last_transaction_at = timestamp;
+        self.last_acquired_slot = slot;
+        
+        Ok(())
+    }
 }

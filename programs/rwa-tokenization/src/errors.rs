@@ -237,4 +237,20 @@ pub enum RwaError {
     /// 6057 - Reinvestment strategy is currently disabled
     #[msg("Reinvestment strategy is currently disabled")]
     StrategyDisabled,
+
+    /// 6058 - Invalid match certificate for Dark Pool trade
+    #[msg("Invalid match certificate signature for Dark Pool trade")]
+    InvalidMatchCertificate,
+
+    /// 6059 - Excessive price impact detected on swap
+    #[msg("AMM price impact exceeds platform threshold (3%)")]
+    ExcessivePriceImpact,
+
+    /// 6060 - Oracle price update slot is too far from current slot (Slot Drift)
+    #[msg("Oracle price update slot drift exceeds safety threshold")]
+    OracleSlotDriftExceeded,
+
+    /// 6061 - Switchboard aggregator account is invalid or mismatched
+    #[msg("Switchboard aggregator account is invalid or mismatched")]
+    InvalidSwitchboardFeed,
 }
