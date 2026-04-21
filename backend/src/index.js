@@ -1,4 +1,5 @@
 const backgroundWorkerService = require("./services/backgroundWorkerService");
+const oracleMonitoringService = require("./services/oracleMonitoringService");
 const indexerService = require("./services/indexerService");
 const express = require("express");
 const cors = require("cors");
@@ -264,6 +265,9 @@ async function startServer() {
         // Institutional Hardening: Start Background Worker for Guaranteed Delivery
         backgroundWorkerService.start();
 
+        // Institutional Hardening: Start Oracle Circuit Breaker Monitoring (Sync to DB)
+        oracleMonitoringService.start();
+
         // Institutional Hardening: Start Indexer Reconciliation (Self-Healing)
         if (indexerService.startReconciliation) {
           indexerService.startReconciliation();
@@ -280,6 +284,7 @@ async function startServer() {
 
       // 1. Stop accepting new work
       backgroundWorkerService.stop();
+      oracleMonitoringService.stop();
       if (indexerService.stopReconciliation) indexerService.stopReconciliation();
       oracleService.stopHeartbeat();
 

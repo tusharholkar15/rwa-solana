@@ -82,6 +82,18 @@ export default function PortfolioPage() {
     }
   }
 
+  const handleToggleAutoCompound = async (assetId: string, currentEnabled: boolean) => {
+    try {
+      await api.updateCompoundingPreference(publicKey!.toBase58(), {
+        assetId,
+        enabled: !currentEnabled
+      });
+      loadData(); // Refresh portfolio state
+    } catch (e) {
+      console.error("Failed to update compounding preference:", e);
+    }
+  };
+
   const allocationData = useMemo(() => {
     if (!portfolio || !portfolio.holdings.length) return [];
     const types: Record<string, number> = {};
@@ -163,6 +175,13 @@ export default function PortfolioPage() {
               {kycStatus === 'verified' ? 'KYC Completed' : 'Complete Verification'}
               <ChevronRight size={16} />
             </button>
+            <Link 
+               href="/oracle"
+               className="btn-secondary-institutional !py-2.5 !px-5 text-sm flex items-center gap-2 border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/5"
+            >
+              Network Health
+              <ShieldCheck size={16} />
+            </Link>
             <button 
                onClick={() => setIsReportsOpen(true)}
                className="btn-secondary-institutional !py-2.5 !px-5 text-sm flex items-center gap-2"
@@ -213,7 +232,7 @@ export default function PortfolioPage() {
                       <span className="text-[10px] font-bold text-white/20 uppercase tracking-widest mb-1 block group-hover:text-emerald-400 transition-colors">Yield Accrued</span>
                       <div className="text-xl font-display font-bold text-emerald-400">$4,291.50</div>
                     </div>
-                    <div className={`p-2 rounded-lg border transition-all ${isAutoCompound ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-400' : 'bg-white/5 border-white/10 text-white/20'}`}>
+                    <div className={`p-2 rounded-lg border transition-all cursor-not-allowed ${isAutoCompound ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-400' : 'bg-white/5 border-white/10 text-white/20'}`}>
                        <RefreshCcw size={14} className={isAutoCompound ? 'animate-spin-slow' : ''} />
                     </div>
                   </div>
@@ -488,14 +507,23 @@ export default function PortfolioPage() {
                               </div>
                             </td>
                             <td className="px-8 py-6">
-                               <div className="text-sm font-bold text-white">{h.shares.toLocaleString()}</div>
-                               <div className="text-[10px] text-white/30 font-medium tracking-tight">Units Held</div>
+                                <div className="text-sm font-bold text-white">{h.shares.toLocaleString()}</div>
+                                <div className={`flex items-center gap-1.5 mt-1 text-[10px] font-black uppercase tracking-tighter ${h.autoCompoundEnabled ? 'text-emerald-400' : 'text-white/20'}`}>
+                                  <RefreshCcw size={10} className={h.autoCompoundEnabled ? 'animate-spin-slow' : ''} />
+                                  {h.autoCompoundEnabled ? 'Auto-Compounding' : 'Sync Paused'}
+                                  <button onClick={() => handleToggleAutoCompound(h.assetId, h.autoCompoundEnabled)} className="ml-1 hover:text-white underline decoration-white/20">Change</button>
+                                </div>
                             </td>
                             <td className="px-8 py-6">
-                               <div className="text-sm font-bold text-white">{formatCurrency(unitPrice)}</div>
-                               <div className="text-[10px] text-white/30 font-medium tracking-tight">Per Token</div>
-                               <div className="text-sm font-display font-black text-white mt-2">{formatCurrency(currentVal)}</div>
-                               <div className="text-[10px] text-emerald-400/60 font-bold uppercase tracking-tight">Total Market Value</div>
+                                <div className="text-sm font-bold text-white">{formatCurrency(unitPrice)}</div>
+                                <div className="flex items-center gap-1.5 mt-1">
+                                   <div className={`w-1.5 h-1.5 rounded-full ${h.asset?.circuitBreaker?.isTripped ? 'bg-rose-500 shadow-[0_0_5px_rgba(244,63,94,0.5)]' : 'bg-emerald-500 shadow-[0_0_5px_rgba(16,185,129,0.5)]'}`} />
+                                   <span className={`text-[9px] font-black uppercase tracking-widest ${h.asset?.circuitBreaker?.isTripped ? 'text-rose-400' : 'text-emerald-400/60'}`}>
+                                      {h.asset?.circuitBreaker?.isTripped ? 'Breaker Tripped' : 'Price Protection Active'}
+                                   </span>
+                                </div>
+                                <div className="text-sm font-display font-black text-white mt-2">{formatCurrency(currentVal)}</div>
+                                <div className="text-[10px] text-emerald-400/60 font-bold uppercase tracking-tight">Total Market Value</div>
                             </td>
                             <td className="px-8 py-6">
                                <div className="text-sm font-bold text-indigo-400">{formatCurrency(navUnitPrice)}</div>

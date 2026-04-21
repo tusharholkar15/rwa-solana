@@ -7,6 +7,8 @@ const TaxLot = require("../models/TaxLot");
 const priceService = require("../services/priceService");
 const { requireWalletSignature: validateWallet } = require("../middleware/security");
 const { paginationMeta } = require("../utils/helpers");
+const solanaService = require("../services/solanaService");
+const auditService = require("../services/auditService");
 
 /**
  * GET /api/portfolio/:wallet/tax-lots
@@ -111,6 +113,8 @@ router.get("/:wallet", validateWallet, async (req, res) => {
             unrealizedPnl,
             pnlPercentage: Math.round(pnlPercentage * 100) / 100,
             totalYieldReceived: holding.totalYieldReceived || 0,
+            autoCompoundEnabled: holding.autoCompoundEnabled || false,
+            reinvestmentThreshold: holding.reinvestmentThreshold || 100_000_000,
             lastTransactionAt: holding.lastTransactionAt || null,
             ownershipPercentage: 0,
           };
@@ -150,6 +154,67 @@ router.get("/:wallet", validateWallet, async (req, res) => {
   } catch (error) {
     console.error("Portfolio error:", error);
     res.status(500).json({ error: "Failed to fetch portfolio" });
+  }
+});
+
+/**
+ * POST /api/portfolio/:wallet/compounding
+ * Update auto-compounding preference for an asset
+ */
+router.post("/:wallet/compounding", validateWallet, async (req, res) => {
+  try {
+    const { wallet } = req.params;
+    const { assetId, enabled, threshold } = req.body;
+
+    if (!assetId) return res.status(400).json({ error: "assetId required" });
+
+    const portfolio = await Portfolio.findOne({ walletAddress: wallet });
+    if (!portfolio) return res.status(404).json({ error: "Portfolio not found" });
+
+    const holding = portfolio.holdings.find(h => h.assetId.toString() === assetId);
+    if (!holding) return res.status(404).json({ error: "Holding not found" });
+
+    const asset = await Asset.findById(holding.assetId);
+    if (!asset) return res.status(404).json({ error: "Asset not found" });
+
+    // 1. Update On-Chain (Guardian role or Owner role depending on instruction)
+    // Here we use the ownerAddress (wallet) to update the Ownership PDA state.
+    const signature = await solanaService.setCompoundingPreference(
+      asset.onChainAddress,
+      wallet,
+      !!enabled,
+      threshold || 100_000_000
+    );
+
+    // 2. Update DB
+    holding.autoCompoundEnabled = !!enabled;
+    if (threshold) holding.reinvestmentThreshold = threshold;
+    await portfolio.save();
+
+    // 3. Audit Log
+    await auditService.logEvent({
+      eventType: "config_update",
+      severity: "info",
+      assetId: asset._id,
+      walletAddress: wallet,
+      signature,
+      details: {
+        action: "toggle_auto_compound",
+        enabled: !!enabled,
+        threshold: threshold || 100_000_000
+      },
+      performedBy: "user"
+    });
+
+    res.json({ 
+      success: true, 
+      signature,
+      autoCompoundEnabled: holding.autoCompoundEnabled 
+    });
+
+  } catch (error) {
+    console.error("Compounding update error:", error);
+    res.status(500).json({ error: error.message || "Failed to update compounding preference" });
   }
 });
 

@@ -25,6 +25,14 @@ const holdingSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    autoCompoundEnabled: {
+      type: Boolean,
+      default: false,
+    },
+    reinvestmentThreshold: {
+      type: Number,
+      default: 100_000_000, // 0.1 SOL in lamports
+    },
     firstPurchaseAt: Date,
     lastTransactionAt: Date,
   },

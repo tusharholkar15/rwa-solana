@@ -59,6 +59,20 @@ function getOwnershipPda(assetPda, owner) {
   );
 }
 
+function getConfigPda() {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("config")],
+    PROGRAM_ID
+  );
+}
+
+function getPoolPda(assetPda) {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("liquidity_pool"), assetPda.toBuffer()],
+    PROGRAM_ID
+  );
+}
+
 module.exports = {
   connection,
   PROGRAM_ID,
@@ -69,4 +83,6 @@ module.exports = {
   getTreasuryPda,
   getWhitelistPda,
   getOwnershipPda,
+  getConfigPda,
+  getPoolPda,
 };

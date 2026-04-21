@@ -55,9 +55,24 @@ class OracleService {
   async processAssetOracle(asset, liveSolPrice) {
     try {
       const baseNav = asset.navPrice || asset.pricePerToken;
-      const marketSentiment = liveSolPrice / 145.0; 
-      const pythPrice = baseNav * marketSentiment;
-      const sbPrice = pythPrice * (1 + (Math.random() * 0.002 - 0.001));
+      let pythPrice, sbPrice;
+
+      if (asset.rehearsalMode === "price_divergence") {
+        // Case A: High Spread (Pyth vs Switchboard)
+        pythPrice = baseNav;
+        sbPrice = baseNav * 1.1; // 10% spread anomaly
+        logger.info({ assetId: asset._id }, "REHEARSAL: Forcing Price Divergence (10% spread)");
+      } else if (asset.rehearsalMode === "spike") {
+        // Case B: Z-Score Anomaly (Sudden flash spike)
+        pythPrice = baseNav * 1.5; // 50% spike
+        sbPrice = pythPrice;
+        logger.info({ assetId: asset._id }, "REHEARSAL: Forcing Price Spike (50% change)");
+      } else {
+        // Normal simulated market behavior
+        const marketSentiment = liveSolPrice / 145.0; 
+        pythPrice = baseNav * marketSentiment;
+        sbPrice = pythPrice * (1 + (Math.random() * 0.002 - 0.001));
+      }
 
       const spread = Math.abs(pythPrice - sbPrice) / baseNav;
       const MAX_ALLOWED_SPREAD = 0.05; 
@@ -148,7 +163,9 @@ class OracleService {
               authority: anchorClient.wallet.publicKey,
               asset: assetPubkey,
               circuitBreaker: cbAddress,
-              priceUpdate: PYTH_PRICE_UPDATE_DEVNET,
+              priceUpdate: asset.rehearsalMode === "oracle_staleness" 
+                ? assetPubkey // Pass wrong account type to trigger failure check on-chain
+                : PYTH_PRICE_UPDATE_DEVNET,
               switchboardAggregator: asset.switchboardAggregator || PublicKey.default, // New account in UpdatePrice
               priceHistory: historyAddress,
             })

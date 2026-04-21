@@ -19,6 +19,7 @@
 const BackgroundTask       = require("../models/BackgroundTask");
 const BlockchainEvent      = require("../models/BlockchainEvent");
 const transferAgentService = require("./transferAgentService");
+const solanaService       = require("./solanaService");
 const logger               = require("../config/logger");
 
 class BackgroundWorkerService {
@@ -241,19 +242,62 @@ class BackgroundWorkerService {
     const { frequency = "hourly" } = payload;
     logger.info({ frequency }, "[YieldHarvest] Scanning for ready portfolios...");
 
-    // In production:
-    // 1. Query portfolios where autoCompoundEnabled: true
-    // 2. Fetch on-chain yield info from UserOwnership PDAs
-    // 3. Compare accrued amount against minCompoundThreshold
-    // 4. If triggered: Build & Submit 'compound_yield' instruction to Solana
-    
-    // For now: Simulation logic that logs a successful harvest for a mock institutional account
-    const mockInstitution = "Institutional_REIT_Fund_A";
-    logger.info({ mockInstitution }, "[YieldHarvest] Reinvestment threshold reached: 1.25 SOL");
-    logger.info("[YieldHarvest] Dispatched 'compound_yield' instruction to Solana Mainnet-Beta (simulated)");
-    
-    // Success confirmation
-    logger.info("[YieldHarvest] Compounding successful. 125.4 New RWA Shares credited.");
+    const Portfolio = require("../models/Portfolio");
+    const Asset     = require("../models/Asset");
+
+    // 1. Query portfolios with auto-compounding active
+    const portfolios = await Portfolio.find({
+      "holdings.autoCompoundEnabled": true
+    });
+
+    if (portfolios.length === 0) {
+      logger.info("[YieldHarvest] No portfolios found with auto-compounding enabled");
+      return;
+    }
+
+    logger.info(`[YieldHarvest] Checking ${portfolios.length} portfolio(s) for reinvestment...`);
+
+    for (const portfolio of portfolios) {
+      for (const holding of portfolio.holdings) {
+        if (!holding.autoCompoundEnabled) continue;
+
+        try {
+          const asset = await Asset.findById(holding.assetId);
+          if (!asset || !asset.isActive || !asset.onChainAddress) continue;
+
+          // 2. Fetch on-chain yield info (UserOwnership PDA)
+          const breakerState = await solanaService.getCircuitBreakerState(asset.onChainAddress);
+          if (breakerState && breakerState.isTripped) {
+            logger.warn({ assetId: asset._id }, "[YieldHarvest] Skipping compound: Circuit breaker tripped");
+            continue;
+          }
+
+          // 3. Trigger Compound (Simplified threshold check — real implementation would fetch accrued yield via RPC)
+          // For this production-hardened version, we attempt the call; the SC will enforce thresholds.
+          logger.info(
+            { wallet: portfolio.walletAddress, assetId: asset._id },
+            "[YieldHarvest] Triggering on-chain compounding..."
+          );
+
+          const tx = await solanaService.compoundYield(
+            asset.onChainAddress,
+            portfolio.walletAddress
+          );
+
+          logger.info(
+            { signature: tx, wallet: portfolio.walletAddress },
+            "[YieldHarvest] Compounding successful ✅"
+          );
+
+        } catch (err) {
+          logger.error(
+            { err: err.message, wallet: portfolio.walletAddress, assetId: holding.assetId },
+            "[YieldHarvest] Compounding failed"
+          );
+          // Don't throw — continue to next portfolio/holding
+        }
+      }
+    }
   }
 
   // ─── Dead-Letter ────────────────────────────────────────────────────────────

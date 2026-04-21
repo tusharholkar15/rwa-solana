@@ -12,10 +12,11 @@ import {
   Server,
   Inbox,
   Skull,
-  Cog,
-  HeartPulse
-} from 'lucide-react';
+import { Cog, HeartPulse } from 'lucide-react';
 import { api } from '@/lib/api';
+import { io } from 'socket.io-client';
+
+const SOCKET_URL = process.env.NEXT_PUBLIC_API_URL?.replace('/api', '') || 'http://localhost:5000';
 
 interface OracleStatus {
   assetId: string;
@@ -24,9 +25,9 @@ interface OracleStatus {
   lastValidPrice: number;
   lastValidUpdateAt: string;
   consecutiveFailures: number;
-  consecutiveSpreadBreaches: number;
   tripReason: string;
   worstSpreadBps: number;
+  lastUpdateSlot: number;
 }
 
 interface WorkerHealth {
@@ -55,19 +56,19 @@ export default function AdminHardeningPanel() {
 
   const fetchStatuses = async () => {
     try {
-      const response = await api.getAssets({ limit: 5 });
-      const mockStatuses: OracleStatus[] = response.assets.map(asset => ({
+      const response = await api.getAssets({ limit: 10 });
+      const realStatuses: OracleStatus[] = response.assets.map(asset => ({
         assetId: asset._id,
         assetName: asset.name,
-        isTripped: asset.status === 'paused' && Math.random() > 0.7,
-        lastValidPrice: asset.pricePerToken,
+        isTripped: asset.circuitBreaker?.isTripped || false,
+        lastValidPrice: asset.circuitBreaker?.lastValidPrice || asset.pricePerToken,
         lastValidUpdateAt: asset.lastOracleUpdate || new Date().toISOString(),
-        consecutiveFailures: 0,
-        consecutiveSpreadBreaches: 0,
-        tripReason: 'NONE',
-        worstSpreadBps: Math.floor(Math.random() * 200)
+        consecutiveFailures: asset.circuitBreaker?.consecutiveFailures || 0,
+        tripReason: asset.circuitBreaker?.tripReason?.toUpperCase() || 'NONE',
+        worstSpreadBps: asset.circuitBreaker?.worstSpreadBps || 0,
+        lastUpdateSlot: asset.circuitBreaker?.lastUpdateSlot || 0
       }));
-      setStatuses(mockStatuses);
+      setStatuses(realStatuses);
     } catch (err) {
       console.error('Failed to fetch oracle statuses:', err);
     } finally {
@@ -95,17 +96,38 @@ export default function AdminHardeningPanel() {
   }, []);
 
   const handleReset = async (assetId: string) => {
+    if (!window.confirm('Are you sure you want to manually reset the circuit breaker? This should only be done if the oracle anomaly has been resolved.')) return;
+
     setResettingId(assetId);
     try {
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      await api.resetCircuitBreaker(assetId);
       await fetchStatuses();
-      alert('Circuit breaker reset successful. Asset reactivated.');
-    } catch (err) {
-      alert('Failed to reset circuit breaker. Guardian authorization required.');
+      alert('Circuit breaker reset successful. Asset reactivated on-chain.');
+    } catch (err: any) {
+      alert(`Reset failed: ${err.message}. Ensure you have Guardian permissions.`);
     } finally {
       setResettingId(null);
     }
   };
+
+  useEffect(() => {
+    // ─── Direct WebSocket logic for instant alerts ─────
+    const socket = io(SOCKET_URL, { transports: ['websocket'] });
+
+    socket.on('connect', () => {
+      console.log('[AdminPanel] Connected to realtime alerts channel');
+    });
+
+    socket.on('WARN_ORACLE_BREACH', (payload: any) => {
+      console.warn('🚨 ORACLE BREACH EVENT RECEIVED', payload);
+      // Play a subtle alert sound or push notification could go here
+      fetchStatuses(); // Immediate refresh
+    });
+
+    return () => {
+       socket.disconnect();
+    };
+  }, []);
 
   return (
     <div className="space-y-6">

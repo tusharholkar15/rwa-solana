@@ -6,44 +6,58 @@ const auditLogSchema = new mongoose.Schema(
       type: String,
       required: true,
       enum: [
-        "identity_created",
-        "tier_upgraded",
-        "wallet_frozen",
-        "wallet_unfrozen",
-        "transfer_validated",
-        "transfer_blocked",
-        "jurisdiction_changed",
-        "aml_screened",
-        "trade_executed",
-        "oracle_circuit_breaker",
-        "admin_action",
+        "oracle_breach", 
+        "circuit_breaker_trip", 
+        "guardian_reset", 
+        "large_trade", 
+        "system_pause", 
+        "config_update",
+        "yield_harvest"
       ],
       index: true,
     },
-    walletAddress: {
+    severity: {
       type: String,
-      required: true,
-      index: true,
+      enum: ["info", "warn", "error", "critical"],
+      default: "info",
     },
-    targetWallet: {
-      type: String, // For transfers
+    assetId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Asset",
       index: true,
     },
     details: {
-      type: mongoose.Schema.Types.Mixed, // JSON object for event-specific data
-    },
-    performedBy: {
-      type: String, // Admin wallet or 'system'
+      type: mongoose.Schema.Types.Mixed,
       required: true,
     },
+    walletAddress: {
+      type: String,
+      index: true,
+    },
+    targetWallet: {
+      type: String,
+      index: true,
+    },
+    signature: String, // Solana transaction signature if applicable
+    performedBy: {
+      type: String,
+      default: "system",
+    },
+    // Compliance Fields
+    ipAddress: String,
+    jurisdiction: String,
+    amlScore: Number,
+    regulatorFlag: {
+      type: Boolean,
+      default: false
+    }
   },
   {
-    timestamps: true, // Automatically manages createdAt, which acts as timestamp
-    strict: false, // In case we need flexibility, though not strictly required
+    timestamps: true,
   }
 );
 
-// Explicit index on createdAt for chronological queries
+// Index for chronological reporting
 auditLogSchema.index({ createdAt: -1 });
 
 module.exports = mongoose.model("AuditLog", auditLogSchema);

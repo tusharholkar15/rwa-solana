@@ -10,12 +10,24 @@ class AuditService {
   /**
    * Log a compliance event
    */
-  async logEvent({ eventType, walletAddress, targetWallet = null, details = {}, performedBy = "system" }, session = null) {
+  async logEvent({ 
+    eventType, 
+    severity = "info", 
+    assetId = null, 
+    walletAddress = "system", 
+    targetWallet = null, 
+    signature = null,
+    details = {}, 
+    performedBy = "system" 
+  }, session = null) {
     try {
       const log = new AuditLog({
         eventType,
+        severity,
+        assetId,
         walletAddress,
         targetWallet,
+        signature,
         details,
         performedBy,
         ipAddress: details.ipAddress || "system",

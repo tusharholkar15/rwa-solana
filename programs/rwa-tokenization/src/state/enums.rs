@@ -59,6 +59,8 @@ pub enum ProposalType {
     EmergencyAction,
     /// Vote to deploy idle treasury funds into a yield strategy
     TreasuryReinvestment,
+    /// Vote to reset a tripped security circuit breaker (Institutional Recovery)
+    OracleReset,
 }
 
 /// Governance proposal status

@@ -153,6 +153,110 @@ class SolanaService {
   }
 
   /**
+   * Automatically compound accrued SOL yield into tokens via the AMM
+   * Triggers the 'compound_yield' instruction from the harvester (backend admin).
+   */
+  async compoundYield(assetAddress, ownerAddress) {
+    try {
+      const { 
+        getConfigPda, 
+        getPoolPda, 
+        getTreasuryPda, 
+        getOwnershipPda 
+      } = require("../config/solana");
+      
+      const asset = new PublicKey(assetAddress);
+      const owner = new PublicKey(ownerAddress);
+      
+      const [configPda] = getConfigPda();
+      const [poolPda] = getPoolPda(asset);
+      const [treasuryPda] = getTreasuryPda(asset);
+      const [ownershipPda] = getOwnershipPda(asset, owner);
+
+      const anchorClient = require("../config/anchorClient");
+      const program = await anchorClient.initialize();
+      
+      const tx = await program.methods
+        .compoundYield()
+        .accounts({
+          harvester: adminKeypair.publicKey,
+          config: configPda,
+          asset: asset,
+          pool: poolPda,
+          treasury: treasuryPda,
+          ownership: ownershipPda,
+          owner: owner,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc();
+
+      return tx;
+    } catch (error) {
+      console.error("[SolanaService] Error compounding yield:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Reset the oracle circuit breaker for an asset (Guardian recovery)
+   * Re-activates an asset after an anomaly has been resolved.
+   */
+  async resetCircuitBreaker(assetAddress) {
+    try {
+      const asset = new PublicKey(assetAddress);
+      const { address: breakerAddress } = this.getCircuitBreakerAddress(assetAddress);
+      
+      const anchorClient = require("../config/anchorClient");
+      const program = await anchorClient.initialize();
+      
+      const tx = await program.methods
+        .resetCircuitBreaker()
+        .accounts({
+          guardian: adminKeypair.publicKey,
+          asset: asset,
+          circuitBreaker: new PublicKey(breakerAddress),
+        })
+        .rpc();
+
+      return tx;
+    } catch (error) {
+      console.error("[SolanaService] Error resetting circuit breaker:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Set auto-compounding preferences for an asset holding on-chain
+   */
+  async setCompoundingPreference(assetAddress, ownerAddress, enabled, threshold) {
+    try {
+      const asset = new PublicKey(assetAddress);
+      const owner = new PublicKey(ownerAddress);
+      const { getOwnershipPda } = require("../config/solana");
+      const [ownershipPda] = getOwnershipPda(asset, owner);
+
+      const anchorClient = require("../config/anchorClient");
+      const program = await anchorClient.initialize();
+      const anchor = require("@coral-xyz/anchor");
+      
+      const tx = await program.methods
+        .setCompoundingPreference(enabled, new anchor.BN(threshold))
+        .accounts({
+          owner: owner,
+          asset: asset,
+          ownership: ownershipPda,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc();
+
+      return tx;
+    } catch (error) {
+      console.error("[SolanaService] Error setting compounding preference:", error);
+      throw error;
+    }
+  }
+
+  /**
    * Get cluster info
    */
   async getClusterInfo() {

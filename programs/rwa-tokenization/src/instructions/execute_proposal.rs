@@ -3,7 +3,7 @@ use anchor_lang::prelude::*;
 use crate::errors::RwaError;
 use crate::state::{
     AssetAccount, GovernanceProposal, ProgramConfig, ProposalStatus, ProposalType, 
-    ReinvestmentWhitelist, GOVERNANCE_TIMELOCK_SECS, TreasuryVault
+    ReinvestmentWhitelist, GOVERNANCE_TIMELOCK_SECS, TreasuryVault, OracleCircuitBreaker,
 };
 
 /// Execute a passed governance proposal.
@@ -115,6 +115,28 @@ pub fn handler(ctx: Context<ExecuteProposal>) -> Result<()> {
             )?;
 
             msg!("Treasury Reinvestment of {} lamports to {} EXECUTED", target_amount, target_account);
+        }
+
+        // Handle Oracle Circuit Breaker Reset
+        if proposal.proposal_type == ProposalType::OracleReset {
+            // Load breaker PDA from remaining_accounts
+            let breaker_info = ctx.remaining_accounts.get(0).ok_or(RwaError::Unauthorized)?;
+            
+            // Verify Breaker PDA
+            let (breaker_pda, _bump) = Pubkey::find_program_address(
+                &[OracleCircuitBreaker::SEED_PREFIX, asset.key().as_ref()],
+                ctx.program_id
+            );
+            require_keys_eq!(breaker_info.key(), breaker_pda, RwaError::Unauthorized);
+
+            // Fetch and modify breaker state
+            let mut breaker_data = Account::<OracleCircuitBreaker>::try_from(breaker_info)?;
+            breaker_data.reset();
+            
+            // Serialize back to account
+            breaker_data.exit(ctx.program_id)?;
+
+            msg!("Oracle Circuit Breaker for asset {} RESET via Governance Proposal", asset.name);
         }
 
         proposal.status = ProposalStatus::Executed;

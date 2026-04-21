@@ -181,4 +181,35 @@ router.get("/metrics", requireAdmin, async (req, res) => {
   }
 });
 
+/**
+ * POST /api/admin/circuit-breaker/reset
+ * Re-activate an asset tripped by the oracle circuit breaker
+ */
+router.post("/circuit-breaker/reset", requireAdmin, async (req, res) => {
+  try {
+    const { assetId } = req.body;
+    const asset = await Asset.findById(assetId);
+    
+    if (!asset || !asset.onChainAddress) {
+      return res.status(404).json({ error: "Asset not found or not tokenized" });
+    }
+
+    // Call on-chain recovery
+    const tx = await solanaService.resetCircuitBreaker(asset.onChainAddress);
+
+    // Force an immediate DB sync via monitoring service (avoids waiting for next poll)
+    const oracleMonitoringService = require("../services/oracleMonitoringService");
+    await oracleMonitoringService._syncAssetBreaker(asset);
+
+    res.json({
+      message: "Circuit breaker reset successful. Asset reactivated.",
+      signature: tx,
+      assetId: asset._id
+    });
+  } catch (error) {
+    console.error("Reset breaker error:", error);
+    res.status(500).json({ error: error.message || "Failed to reset circuit breaker" });
+  }
+});
+
 module.exports = router;

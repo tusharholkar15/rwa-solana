@@ -195,6 +195,12 @@ const assetSchema = new mongoose.Schema(
       required: true,
     },
 
+    // Rehearsal & Testing
+    rehearsalMode: {
+      type: String,
+      enum: ["none", "price_divergence", "oracle_staleness", "spike"],
+      default: "none"
+    },
     // Stats
     totalInvestors: {
       type: Number,

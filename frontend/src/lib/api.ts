@@ -146,7 +146,6 @@ class ApiClient {
     });
   }
 
-  // ─── Portfolio ─────────────────────────────────────────────
   async getPortfolio(wallet: string, forceRefresh = false) {
     const options: RequestInit = forceRefresh 
       ? { headers: { 'Cache-Control': 'no-cache' } } 
@@ -155,6 +154,16 @@ class ApiClient {
     return this.request<{ portfolio: any; solPrice: number }>(
       `/portfolio/${wallet}`,
       options
+    );
+  }
+
+  async updateCompoundingPreference(wallet: string, data: { assetId: string; enabled: boolean; threshold?: number }) {
+    return this.request<{ success: boolean; signature: string; autoCompoundEnabled: boolean }>(
+      `/portfolio/${wallet}/compounding`,
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }
     );
   }
 
@@ -430,6 +439,30 @@ class ApiClient {
     }
     const query = searchParams.toString();
     return this.request<{ posts: any[]; total: number }>(`/community/feed${query ? `?${query}` : ''}`);
+  }
+
+  async getNetworkIntegrity() {
+    return this.request<{
+      stats: {
+        totalAssets: number;
+        trippedAssets: number;
+        healthyAssets: number;
+        systemStatus: string;
+        lastHeartbeat: string;
+        consensusQuality: number;
+      };
+      logs: any[];
+      assets: ({
+        id: string;
+        name: string;
+        symbol: string;
+        isTripped: boolean;
+        tripReason: string;
+        lastPrice: number;
+        legalAttestations?: { name: string; hash: string; ipfsUri?: string }[];
+      })[];
+      activeSecurityProposals?: any[];
+    }>('/analytics/network-integrity');
   }
 
   async getAssetReviews(assetId: string) {

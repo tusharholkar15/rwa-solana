@@ -2,7 +2,7 @@ use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
 
 use crate::errors::RwaError;
-use crate::state::{AssetAccount, TreasuryVault, PriceHistory};
+use crate::state::{AssetAccount, TreasuryVault, PriceHistory, OracleCircuitBreaker};
 
 /// Initialize a new tokenized real-world asset
 /// Creates the asset PDA, SPL token mint, treasury vault, and treasury token account
@@ -59,6 +59,13 @@ pub fn handler(
     price_history.head = 0;
     price_history.count = 0;
     price_history.bump = ctx.bumps.price_history;
+
+    // Initialize the oracle circuit breaker
+    let breaker = &mut ctx.accounts.circuit_breaker;
+    breaker.asset = asset.key();
+    breaker.guardian = ctx.accounts.authority.key();
+    breaker.is_tripped = false;
+    breaker.bump = ctx.bumps.circuit_breaker;
 
     // Mint the total supply to the treasury token account
     let asset_key = ctx.accounts.asset.key();
@@ -148,6 +155,16 @@ pub struct InitializeAsset<'info> {
         bump
     )]
     pub price_history: Account<'info, PriceHistory>,
+
+    /// Circuit breaker PDA for this asset
+    #[account(
+        init,
+        payer = authority,
+        space = 8 + OracleCircuitBreaker::INIT_SPACE,
+        seeds = [OracleCircuitBreaker::SEED_PREFIX, asset.key().as_ref()],
+        bump
+    )]
+    pub circuit_breaker: Account<'info, OracleCircuitBreaker>,
 
     /// Standard programs
     pub token_program: Program<'info, Token>,

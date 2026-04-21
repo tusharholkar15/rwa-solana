@@ -21,7 +21,7 @@ const governanceProposalSchema = new mongoose.Schema(
     },
     proposalType: {
       type: String,
-      enum: ["sell_property", "renovation", "rent_change", "general_vote", "emergency_action"],
+      enum: ["sell_property", "renovation", "rent_change", "general_vote", "emergency_action", "oracle_reset"],
       required: true,
     },
     title: {
