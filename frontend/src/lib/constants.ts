@@ -1,6 +1,6 @@
 export const LAMPORTS_PER_SOL = 1_000_000_000;
 
-export const SOLANA_NETWORK = process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'devnet';
+export const SOLANA_NETWORK = process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'testnet';
 
 export const EXPLORER_URL = SOLANA_NETWORK === 'mainnet-beta'
   ? 'https://solscan.io'

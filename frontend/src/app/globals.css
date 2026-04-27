@@ -21,7 +21,7 @@
 @layer components {
   /* Ultra-Premium Glass Panel */
   .institutional-glass {
-    @apply relative overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.02] backdrop-blur-[32px] shadow-[0_8px_32px_rgba(0,0,0,0.4)];
+    @apply relative overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.02] backdrop-blur-[16px] shadow-[0_8px_32px_rgba(0,0,0,0.4)];
   }
 
   .institutional-glass-hover {

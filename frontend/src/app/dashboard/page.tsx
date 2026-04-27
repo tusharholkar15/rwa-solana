@@ -21,26 +21,26 @@ import { formatCurrency, formatNumber, lamportsToSol, shortenAddress } from '@/l
 import { useCurrency } from '@/context/CurrencyContext';
 import Link from 'next/link';
 import AuthGate from '@/components/shared/AuthGate';
-import { useRole } from '@/context/RoleContext';
-import {
-  AreaChart,
-  Area,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
-} from 'recharts';
+
+import dynamic from 'next/dynamic';
+
+// Dynamic imports for charts to improve performance
+const ResponsiveContainer = dynamic(() => import('recharts').then(mod => mod.ResponsiveContainer), { ssr: false });
+const AreaChart = dynamic(() => import('recharts').then(mod => mod.AreaChart), { ssr: false });
+const Area = dynamic(() => import('recharts').then(mod => mod.Area), { ssr: false });
+const XAxis = dynamic(() => import('recharts').then(mod => mod.XAxis), { ssr: false });
+const YAxis = dynamic(() => import('recharts').then(mod => mod.YAxis), { ssr: false });
+const CartesianGrid = dynamic(() => import('recharts').then(mod => mod.CartesianGrid), { ssr: false });
+const Tooltip = dynamic(() => import('recharts').then(mod => mod.Tooltip), { ssr: false });
+const PieChart = dynamic(() => import('recharts').then(mod => mod.PieChart), { ssr: false });
+const Pie = dynamic(() => import('recharts').then(mod => mod.Pie), { ssr: false });
+const Cell = dynamic(() => import('recharts').then(mod => mod.Cell), { ssr: false });
 
 const CHART_COLORS = ['#818cf8', '#06b6d4', '#8b5cf6', '#10b981', '#f59e0b', '#f43f5e'];
 
 export default function DashboardPage() {
   const { formatPrice } = useCurrency();
   const { connected, publicKey } = useWallet();
-  const { isDemoMode, demoWalletAddress } = useRole();
   const [portfolio, setPortfolio] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [solPrice, setSolPrice] = useState(145);
@@ -48,7 +48,7 @@ export default function DashboardPage() {
   useEffect(() => {
     async function load() {
       try {
-        const activeWallet = isDemoMode ? demoWalletAddress : (connected && publicKey ? publicKey.toBase58() : null);
+        const activeWallet = connected && publicKey ? publicKey.toBase58() : null;
         
         if (activeWallet) {
           const res = await api.getPortfolio(activeWallet);
@@ -62,7 +62,7 @@ export default function DashboardPage() {
       }
     }
     load();
-  }, [connected, publicKey, isDemoMode, demoWalletAddress]);
+  }, [connected, publicKey]);
 
   // Mock chart data
   const chartData = Array.from({ length: 30 }, (_, i) => ({
@@ -77,7 +77,7 @@ export default function DashboardPage() {
     { name: 'Land', value: 10 },
   ];
 
-  if (!connected && !isDemoMode) {
+  if (!connected) {
     return (
       <AuthGate 
         title="Institutional Dashboard" 
@@ -86,7 +86,7 @@ export default function DashboardPage() {
     );
   }
 
-  const activeWallet = isDemoMode ? demoWalletAddress : publicKey?.toBase58();
+  const activeWallet = publicKey?.toBase58();
 
   const totalValue = portfolio?.totalValue ? lamportsToSol(portfolio.totalValue) * solPrice : 0;
   const totalInvested = portfolio?.totalInvested ? lamportsToSol(portfolio.totalInvested) * solPrice : 0;
@@ -97,7 +97,7 @@ export default function DashboardPage() {
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* Header */}
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="mb-8">
-        <h1 className="text-3xl font-bold text-white mb-2">Dashboard {isDemoMode && <span className="text-[10px] font-black bg-indigo-500/20 text-indigo-400 px-2 py-1 rounded uppercase ml-2 tracking-widest">Demo Mode</span>}</h1>
+        <h1 className="text-3xl font-bold text-white mb-2">Dashboard</h1>
         <p className="text-white/40">
           Welcome back, <span className="text-brand-400">{shortenAddress(activeWallet || '')}</span>
         </p>

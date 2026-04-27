@@ -36,7 +36,7 @@ async function verifyResilience() {
     const taTask = new BackgroundTask({
       type: 'TRANSFER_AGENT_SYNC',
       payload: {
-        assetId: '65d9c5a99573aee5a3cda46f',
+        assetId: '69d9c5a99573aee5a3cd9c2b',
         fromWallet: 'TEST_BUYER_' + Date.now(),
         toWallet: 'TEST_SELLER_' + Date.now(),
         amount: 100,

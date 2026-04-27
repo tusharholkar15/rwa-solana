@@ -134,12 +134,18 @@ class SolanaService {
       const program = require("../config/anchorClient").getProgram();
       const state = await program.account.oracleCircuitBreaker.fetch(address);
       
-      // Map reason codes to strings
+      // Map reason codes to strings (Anchor 0.30 may return enum objects or ints)
       const reasons = ["none", "spread", "failure", "zscore", "drift", "manual"];
+      let tripReason = "none";
+      if (typeof state.tripReason === "number") {
+        tripReason = reasons[state.tripReason] || "unknown";
+      } else if (state.tripReason && typeof state.tripReason === "object") {
+        tripReason = Object.keys(state.tripReason)[0].toLowerCase();
+      }
       
       return {
         isTripped: state.isTripped,
-        tripReason: reasons[state.tripReason] || "unknown",
+        tripReason: tripReason,
         trippedAt: state.trippedAt.toNumber() > 0 ? new Date(state.trippedAt.toNumber() * 1000) : null,
         lastValidPrice: state.lastValidPrice.toNumber() / 1e9,
         worstSpreadBps: state.worstSpreadBps,
@@ -269,7 +275,7 @@ class SolanaService {
         version: version["solana-core"],
         slot,
         blockHeight,
-        network: process.env.SOLANA_NETWORK || "devnet",
+        network: process.env.SOLANA_NETWORK || "testnet",
         rpcUrl: process.env.SOLANA_RPC_URL,
       };
     } catch (error) {

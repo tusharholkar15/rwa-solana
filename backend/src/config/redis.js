@@ -14,6 +14,7 @@ const redis = new Redis(redisUrl, {
       return true;
     }
   },
+  enableOfflineQueue: false,
 });
 
 // ─── Performance Auditing Wrapper ──────────────────────────

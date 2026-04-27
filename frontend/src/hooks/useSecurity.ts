@@ -52,6 +52,12 @@ export const useSecurity = () => {
    * Restore session from storage on mount or wallet change
    */
   useEffect(() => {
+    // Ensure legacy sandbox tokens don't revive the session
+    if (localStorage.getItem('rwa_sandbox_active') === 'true') {
+      localStorage.removeItem('rwa_sandbox_active');
+      localStorage.removeItem('rwa_auth_session');
+    }
+
     if (!connected || !publicKey) {
       setIsAuthenticated(false);
       api.clearSession();
@@ -86,6 +92,8 @@ export const useSecurity = () => {
     logout: () => {
         api.clearSession();
         sessionStorage.removeItem('siws_token');
+        localStorage.removeItem('rwa_sandbox_active');
+        localStorage.removeItem('rwa_auth_session');
         setIsAuthenticated(false);
     }
   };

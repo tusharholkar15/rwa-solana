@@ -17,7 +17,7 @@ import { expect } from "chai";
 describe("Yield Harvesting Integration", () => {
     const provider = anchor.AnchorProvider.env();
     anchor.setProvider(provider);
-    const program = anchor.workspace.RwaTokenization as Program<RwaTokenization>;
+    const program = anchor.workspace.RwaTokenization as unknown as Program<RwaTokenization>;
     const authority = provider.wallet as anchor.Wallet;
 
     // Accounts

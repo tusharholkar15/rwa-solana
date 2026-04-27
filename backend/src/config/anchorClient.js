@@ -24,7 +24,7 @@ class AnchorClient {
     if (this.isInitialized) return this.program;
 
     try {
-      const rpcUrl = process.env.SOLANA_RPC_URL || "https://api.devnet.solana.com";
+      const rpcUrl = process.env.SOLANA_RPC_URL || "https://api.testnet.solana.com";
       const programIdStr = process.env.PROGRAM_ID;
       const adminSecretB58 = process.env.ADMIN_PRIVATE_KEY;
 

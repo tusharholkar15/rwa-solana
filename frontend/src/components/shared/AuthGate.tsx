@@ -24,7 +24,7 @@ export default function AuthGate({
 }: AuthGateProps) {
   const [mounted, setMounted] = useState(false);
   const { publicKey } = useWallet();
-  const { role, loading, hasRole, isDemoMode, toggleDemoMode } = useRole();
+  const { role, loading, hasRole } = useRole();
 
   useEffect(() => {
     setMounted(true);
@@ -43,7 +43,7 @@ export default function AuthGate({
   }
 
   // Handle Allowed
-  if ((publicKey || isDemoMode) && hasRole(allowedRoles)) {
+  if (publicKey && hasRole(allowedRoles)) {
     return <>{children}</>;
   }
 
@@ -81,15 +81,6 @@ export default function AuthGate({
             <div className="flex justify-center transform hover:scale-105 transition-transform duration-300">
                <PremiumWalletButton className="!h-14 !px-10 !text-sm" />
             </div>
-            
-            {!publicKey && !isDemoMode && (
-              <button 
-                onClick={toggleDemoMode}
-                className="mt-4 px-6 py-2 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-xs font-bold uppercase tracking-widest hover:bg-indigo-500/20 transition-all"
-              >
-                Access Demo Mode
-              </button>
-            )}
 
             <p className="text-[10px] font-bold text-white/10 uppercase tracking-widest pt-4">
                Audit ID: SEC-RWA-2026-X

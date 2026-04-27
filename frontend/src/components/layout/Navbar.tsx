@@ -11,7 +11,6 @@ import {
   Activity, EyeOff, UserCheck, Vote, Droplets, DollarSign, Network, Radio,
   ChevronDown, TrendingUp, ArrowRight, Cpu, LogOut,
 } from 'lucide-react';
-import { useRole } from '@/context/RoleContext';
 import { useSecurity } from '@/hooks/useSecurity';
 import SystemStatusIndicator from '@/components/layout/SystemStatusIndicator';
 
@@ -220,7 +219,6 @@ function NavDropdown({ group, isActive }: { group: typeof navGroups[0]; isActive
 export default function Navbar() {
   const pathname = usePathname();
   const { connected, publicKey } = useWallet();
-  const { isDemoMode, toggleDemoMode } = useRole();
   const { isAuthenticated, isAuthenticating, challenge } = useSecurity();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
@@ -326,23 +324,6 @@ export default function Navbar() {
               }}>
                 <UserCheck size={14} color="#10b981" />
                 <span style={{ fontSize: '11px', fontWeight: '800', color: '#10b981', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Verified</span>
-              </div>
-            )}
-
-            {isDemoMode && (
-              <div style={{
-                display: 'flex', alignItems: 'center', gap: '8px',
-                padding: '4px 10px', borderRadius: '8px',
-                background: 'rgba(99, 102, 241, 0.1)', border: '1px solid rgba(99, 102, 241, 0.2)',
-              }}>
-                <span style={{ fontSize: '10px', fontWeight: '800', color: '#818cf8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Demo Mode</span>
-                <button 
-                  onClick={toggleDemoMode}
-                  style={{ background: 'none', border: 'none', padding: '2px', cursor: 'pointer', color: 'rgba(255,255,255,0.3)', display: 'flex' }}
-                  title="Exit Demo Mode"
-                >
-                  <LogOut size={12} />
-                </button>
               </div>
             )}
 

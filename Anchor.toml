@@ -3,10 +3,10 @@ seeds = false
 skip-lint = false
 
 [programs.localnet]
-rwa_tokenization = "RWATokenXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+rwa_tokenization = "RwaP111111111111111111111111111111111111111"
 
-[programs.devnet]
-rwa_tokenization = "RWATokenXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+[programs.testnet]
+rwa_tokenization = "RwaP111111111111111111111111111111111111111"
 
 [registry]
 url = "https://api.apr.dev"

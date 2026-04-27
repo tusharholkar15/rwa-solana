@@ -3,17 +3,18 @@
   "name": "rwa_tokenization",
   "instructions": [
     {
-      "name": "initialize_asset",
+      "name": "initializeAsset",
       "accounts": [
-        { "name": "authority", "isMut": true, "isSigner": true },
-        { "name": "asset", "isMut": true, "isSigner": false },
-        { "name": "mint", "isMut": true, "isSigner": true },
-        { "name": "treasury", "isMut": true, "isSigner": false },
-        { "name": "treasuryTokenAccount", "isMut": true, "isSigner": false },
-        { "name": "priceHistory", "isMut": true, "isSigner": false },
-        { "name": "tokenProgram", "isMut": false, "isSigner": false },
-        { "name": "systemProgram", "isMut": false, "isSigner": false },
-        { "name": "rent", "isMut": false, "isSigner": false }
+        { "name": "authority", "writable": true, "signer": true },
+        { "name": "asset", "writable": true, "signer": false },
+        { "name": "mint", "writable": true, "signer": true },
+        { "name": "treasury", "writable": true, "signer": false },
+        { "name": "treasuryTokenAccount", "writable": true, "signer": true },
+        { "name": "priceHistory", "writable": true, "signer": false },
+        { "name": "circuitBreaker", "writable": true, "signer": false },
+        { "name": "tokenProgram", "writable": false, "signer": false },
+        { "name": "systemProgram", "writable": false, "signer": false },
+        { "name": "rent", "writable": false, "signer": false }
       ],
       "args": [
         { "name": "name", "type": "string" },
@@ -25,23 +26,108 @@
       ]
     },
     {
-      "name": "initialize_price_history",
+      "name": "initializeConfig",
       "accounts": [
-        { "name": "authority", "isMut": true, "isSigner": true },
-        { "name": "asset", "isMut": false, "isSigner": false },
-        { "name": "priceHistory", "isMut": true, "isSigner": false },
-        { "name": "systemProgram", "isMut": false, "isSigner": false }
+        { "name": "authority", "writable": true, "signer": true },
+        { "name": "config", "writable": true, "signer": false },
+        { "name": "systemProgram", "writable": false, "signer": false }
+      ],
+      "args": [
+        { "name": "protocolFeeBps", "type": "u16" },
+        { "name": "maxOracleStaleness", "type": "u64" }
+      ]
+    },
+    {
+      "name": "createPool",
+      "accounts": [
+        { "name": "authority", "writable": true, "signer": true },
+        { "name": "asset", "writable": true, "signer": false },
+        { "name": "pool", "writable": true, "signer": false },
+        { "name": "lpMint", "writable": true, "signer": true },
+        { "name": "authorityTokenAccount", "writable": true, "signer": false },
+        { "name": "poolTokenAccount", "writable": true, "signer": true },
+        { "name": "authorityLpAccount", "writable": true, "signer": true },
+        { "name": "tokenProgram", "writable": false, "signer": false },
+        { "name": "systemProgram", "writable": false, "signer": false },
+        { "name": "rent", "writable": false, "signer": false }
+      ],
+      "args": [
+        { "name": "initialTokens", "type": "u64" },
+        { "name": "initialSol", "type": "u64" },
+        { "name": "feeBps", "type": "u16" }
+      ]
+    },
+    {
+      "name": "setCompoundingPreference",
+      "accounts": [
+        { "name": "owner", "writable": true, "signer": true },
+        { "name": "ownership", "writable": true, "signer": false }
+      ],
+      "args": [
+        { "name": "enabled", "type": "bool" },
+        { "name": "threshold", "type": "u64" }
+      ]
+    },
+    {
+      "name": "fundYield",
+      "accounts": [
+        { "name": "authority", "writable": true, "signer": true },
+        { "name": "asset", "writable": true, "signer": false },
+        { "name": "treasury", "writable": true, "signer": false },
+        { "name": "systemProgram", "writable": false, "signer": false }
+      ],
+      "args": [
+        { "name": "amount", "type": "u64" }
+      ]
+    },
+    {
+      "name": "compoundYield",
+      "accounts": [
+        { "name": "harvester", "writable": true, "signer": true },
+        { "name": "config", "writable": false, "signer": false },
+        { "name": "asset", "writable": true, "signer": false },
+        { "name": "pool", "writable": true, "signer": false },
+        { "name": "treasury", "writable": true, "signer": false },
+        { "name": "ownership", "writable": true, "signer": false },
+        { "name": "owner", "writable": false, "signer": false },
+        { "name": "systemProgram", "writable": false, "signer": false }
       ],
       "args": []
     },
     {
-      "name": "update_price",
+      "name": "whitelistUser",
       "accounts": [
-        { "name": "authority", "isMut": false, "isSigner": true },
-        { "name": "asset", "isMut": true, "isSigner": false },
-        { "name": "circuitBreaker", "isMut": true, "isSigner": false },
-        { "name": "priceUpdate", "isMut": false, "isSigner": false },
-        { "name": "priceHistory", "isMut": true, "isSigner": false }
+        { "name": "authority", "writable": true, "signer": true },
+        { "name": "secondaryVerifier", "writable": false, "signer": true },
+        { "name": "user", "writable": false, "signer": false },
+        { "name": "whitelistEntry", "writable": true, "signer": false },
+        { "name": "systemProgram", "writable": false, "signer": false }
+      ],
+      "args": []
+    },
+    {
+      "name": "setRole",
+      "accounts": [
+        { "name": "admin", "writable": false, "signer": true },
+        { "name": "adminWhitelist", "writable": false, "signer": false },
+        { "name": "targetWhitelist", "writable": true, "signer": false },
+        { "name": "systemProgram", "writable": false, "signer": false }
+      ],
+      "args": [
+        { "name": "role", "type": { "defined": "UserRole" } },
+        { "name": "complianceTier", "type": "u8" },
+        { "name": "jurisdiction", "type": "u16" },
+        { "name": "amlFlags", "type": "u8" },
+        { "name": "investmentLimit", "type": "u64" }
+      ]
+    },
+    {
+      "name": "updatePrice",
+      "accounts": [
+        { "name": "authority", "writable": false, "signer": true },
+        { "name": "asset", "writable": true, "signer": false },
+        { "name": "circuitBreaker", "writable": true, "signer": false },
+        { "name": "priceUpdate", "writable": false, "signer": false }
       ],
       "args": [
         { "name": "switchboardPrice", "type": "u64" },
@@ -49,84 +135,199 @@
       ]
     },
     {
-      "name": "fund_yield",
+      "name": "resetCircuitBreaker",
       "accounts": [
-        { "name": "authority", "isMut": true, "isSigner": true },
-        { "name": "asset", "isMut": true, "isSigner": false },
-        { "name": "treasury", "isMut": true, "isSigner": false },
-        { "name": "systemProgram", "isMut": false, "isSigner": false }
-      ],
-      "args": [
-        { "name": "amount", "type": "u64" }
-      ]
-    },
-    {
-      "name": "claim_yield",
-      "accounts": [
-        { "name": "holder", "isMut": true, "isSigner": true },
-        { "name": "asset", "isMut": false, "isSigner": false },
-        { "name": "treasury", "isMut": true, "isSigner": false },
-        { "name": "userOwnership", "isMut": true, "isSigner": false },
-        { "name": "systemProgram", "isMut": false, "isSigner": false }
+        { "name": "guardian", "writable": false, "signer": true },
+        { "name": "asset", "writable": true, "signer": false },
+        { "name": "circuitBreaker", "writable": true, "signer": false }
       ],
       "args": []
+    },
+    {
+      "name": "buyShares",
+      "accounts": [
+        { "name": "buyer", "writable": true, "signer": true },
+        { "name": "asset", "writable": true, "signer": false },
+        { "name": "treasury", "writable": true, "signer": false },
+        { "name": "treasuryTokenAccount", "writable": true, "signer": false },
+        { "name": "buyerTokenAccount", "writable": true, "signer": false },
+        { "name": "buyerWhitelist", "writable": false, "signer": false },
+        { "name": "userOwnership", "writable": true, "signer": false },
+        { "name": "tokenProgram", "writable": false, "signer": false },
+        { "name": "systemProgram", "writable": false, "signer": false }
+      ],
+      "args": [{ "name": "amount", "type": "u64" }]
+    },
+    {
+      "name": "sellShares",
+      "accounts": [
+        { "name": "seller", "writable": true, "signer": true },
+        { "name": "asset", "writable": true, "signer": false },
+        { "name": "treasury", "writable": true, "signer": false },
+        { "name": "treasuryTokenAccount", "writable": true, "signer": false },
+        { "name": "sellerTokenAccount", "writable": true, "signer": false },
+        { "name": "sellerWhitelist", "writable": false, "signer": false },
+        { "name": "userOwnership", "writable": true, "signer": false },
+        { "name": "tokenProgram", "writable": false, "signer": false },
+        { "name": "systemProgram", "writable": false, "signer": false }
+      ],
+      "args": [{ "name": "amount", "type": "u64" }]
+    },
+    {
+      "name": "distributeYield",
+      "accounts": [
+        { "name": "authority", "writable": true, "signer": true },
+        { "name": "asset", "writable": true, "signer": false },
+        { "name": "treasury", "writable": true, "signer": false },
+        { "name": "holder", "writable": true, "signer": false },
+        { "name": "userOwnership", "writable": true, "signer": false },
+        { "name": "systemProgram", "writable": false, "signer": false }
+      ],
+      "args": [{ "name": "amount", "type": "u64" }]
     }
   ],
   "accounts": [
     {
-      "name": "AssetAccount",
+      "name": "assetAccount",
       "type": {
         "kind": "struct",
         "fields": [
           { "name": "authority", "type": "publicKey" },
           { "name": "name", "type": "string" },
-          { "name": "pricePerToken", "type": "u64" },
-          { "name": "availableSupply", "type": "u64" },
+          { "name": "symbol", "type": "string" },
+          { "name": "uri", "type": "string" },
+          { "name": "mint", "type": "publicKey" },
           { "name": "totalSupply", "type": "u64" },
-          { "name": "accumulatedYieldPerShare", "type": "u128" },
-          { "name": "bump", "type": "u8" }
+          { "name": "availableSupply", "type": "u64" },
+          { "name": "pricePerToken", "type": "u64" },
+          { "name": "annualYieldBps", "type": "u16" },
+          { "name": "totalYieldDistributed", "type": "u64" },
+          { "name": "oracleFeedId", "type": { "array": ["u8", 32] } },
+          { "name": "isActive", "type": "bool" },
+          { "name": "createdAt", "type": "i64" },
+          { "name": "lastPriceUpdate", "type": "i64" },
+          { "name": "bump", "type": "u8" },
+          { "name": "lifecycleStatus", "type": { "defined": "AssetLifecycleStatus" } },
+          { "name": "verificationHash", "type": { "array": ["u8", 32] } },
+          { "name": "approvedBy", "type": "publicKey" },
+          { "name": "fraudScore", "type": "u8" },
+          { "name": "legalDocCount", "type": "u8" },
+          { "name": "minComplianceTier", "type": "u8" },
+          { "name": "allowedJurisdictions", "type": "u32" },
+          { "name": "occupancyRate", "type": "u8" },
+          { "name": "lastInspectionAt", "type": "i64" },
+          { "name": "oracleSource", "type": "u8" },
+          { "name": "switchboardFeed", "type": "publicKey" },
+          { "name": "hasLiquidityPool", "type": "bool" },
+          { "name": "version", "type": "u8" },
+          { "name": "accumulatedYieldPerShare", "type": "u128" }
         ]
       }
     },
     {
-      "name": "UserOwnership",
+      "name": "whitelistEntry",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          { "name": "user", "type": "publicKey" },
+          { "name": "isVerified", "type": "bool" },
+          { "name": "verifiedBy", "type": "publicKey" },
+          { "name": "secondaryVerifiedBy", "type": "publicKey" },
+          { "name": "verifiedAt", "type": "i64" },
+          { "name": "expiresAt", "type": "i64" },
+          { "name": "bump", "type": "u8" },
+          { "name": "role", "type": { "defined": "UserRole" } },
+          { "name": "jurisdiction", "type": "u16" },
+          { "name": "complianceTier", "type": "u8" },
+          { "name": "amlClearedAt", "type": "i64" },
+          { "name": "amlFlags", "type": "u8" },
+          { "name": "investmentLimit", "type": "u64" },
+          { "name": "totalInvested", "type": "u64" },
+          { "name": "activePositions", "type": "u16" },
+          { "name": "version", "type": "u8" }
+        ]
+      }
+    },
+    {
+      "name": "userOwnership",
       "type": {
         "kind": "struct",
         "fields": [
           { "name": "owner", "type": "publicKey" },
           { "name": "asset", "type": "publicKey" },
           { "name": "sharesOwned", "type": "u64" },
+          { "name": "avgPurchasePrice", "type": "u64" },
+          { "name": "totalInvested", "type": "u64" },
+          { "name": "totalYieldReceived", "type": "u64" },
+          { "name": "firstPurchaseAt", "type": "i64" },
+          { "name": "lastTransactionAt", "type": "i64" },
+          { "name": "lastAcquiredSlot", "type": "u64" },
+          { "name": "bump", "type": "u8" },
           { "name": "yieldDebt", "type": "u128" },
           { "name": "unclaimedYieldLamports", "type": "u64" },
-          { "name": "lastAcquiredSlot", "type": "u64" },
-          { "name": "bump", "type": "u8" }
+          { "name": "autoCompoundEnabled", "type": "bool" },
+          { "name": "minCompoundThreshold", "type": "u64" }
         ]
       }
     },
     {
-      "name": "PriceHistory",
+      "name": "oracleCircuitBreaker",
       "type": {
         "kind": "struct",
         "fields": [
           { "name": "asset", "type": "publicKey" },
-          { "name": "prices", "type": { "array": ["u64", 48] } },
-          { "name": "timestamps", "type": { "array": ["i64", 48] } },
-          { "name": "head", "type": "u8" },
-          { "name": "count", "type": "u8" },
+          { "name": "lastValidPrice", "type": "u64" },
+          { "name": "lastValidUpdateAt", "type": "i64" },
+          { "name": "consecutiveSpreadBreaches", "type": "u8" },
+          { "name": "consecutiveFailures", "type": "u8" },
+          { "name": "isTripped", "type": "bool" },
+          { "name": "trippedAt", "type": "i64" },
+          { "name": "tripReason", "type": "u8" },
+          { "name": "worstSpreadBps", "type": "u16" },
+          { "name": "guardian", "type": "publicKey" },
+          { "name": "totalTrips", "type": "u32" },
+          { "name": "priceSum1h", "type": "u64" },
+          { "name": "priceCount1h", "type": "u16" },
+          { "name": "lastZscoreX100", "type": "u16" },
           { "name": "bump", "type": "u8" }
         ]
       }
     }
   ],
-  "events": [
+  "types": [
     {
-      "name": "PriceUpdated",
-      "fields": [
-        { "name": "asset", "type": "publicKey", "index": false },
-        { "name": "price", "type": "u64", "index": false },
-        { "name": "oracleSource", "type": "u8", "index": false },
-        { "name": "timestamp", "type": "i64", "index": false }
-      ]
+      "name": "AssetLifecycleStatus",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          { "name": "Pending" },
+          { "name": "UnderReview" },
+          { "name": "Verified" },
+          { "name": "Tokenized" },
+          { "name": "Active" },
+          { "name": "Paused" },
+          { "name": "Sold" }
+        ]
+      }
+    },
+    {
+      "name": "UserRole",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          { "name": "Investor" },
+          { "name": "Issuer" },
+          { "name": "Admin" },
+          { "name": "Auditor" }
+        ]
+      }
     }
-  ]
+  ],
+  "metadata": {
+    "address": "RwaP111111111111111111111111111111111111111",
+    "name": "rwa_tokenization",
+    "version": "0.1.0",
+    "spec": "0.1.0"
+  },
+  "address": "RwaP111111111111111111111111111111111111111"
 }

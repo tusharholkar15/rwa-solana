@@ -1,7 +1,7 @@
 const { Connection, PublicKey, Keypair, clusterApiUrl } = require("@solana/web3.js");
 
 // Solana connection configuration
-const SOLANA_NETWORK = process.env.SOLANA_NETWORK || "devnet";
+const SOLANA_NETWORK = process.env.SOLANA_NETWORK || "testnet";
 const SOLANA_RPC_URL =
   process.env.SOLANA_RPC_URL || clusterApiUrl(SOLANA_NETWORK);
 const PROGRAM_ID = new PublicKey(

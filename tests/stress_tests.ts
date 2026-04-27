@@ -13,7 +13,7 @@ describe("Oracle Stress Tests", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
 
-  const program = anchor.workspace.RwaTokenization as Program<RwaTokenization>;
+  const program = anchor.workspace.RwaTokenization as Program<any>;
   const authority = provider.wallet as anchor.Wallet;
 
   // Test setup
@@ -86,7 +86,7 @@ describe("Oracle Stress Tests", () => {
     // or use a custom test-only instruction that simulates a failure.
     // For now, we verify the state transitions in the circuit breaker.
     
-    let breakerAccount = await program.account.oracleCircuitBreaker.fetch(breakerPda);
+    let breakerAccount = await (program.account as any).oracleCircuitBreaker.fetch(breakerPda);
     expect(breakerAccount.consecutiveFailures).to.equal(0);
     expect(breakerAccount.isTripped).to.be.false;
 
@@ -129,7 +129,7 @@ describe("Oracle Stress Tests", () => {
             })
             .rpc();
           
-          const breaker = await program.account.oracleCircuitBreaker.fetch(breakerPda);
+          const breaker = await (program.account as any).oracleCircuitBreaker.fetch(breakerPda);
           expect(breaker.isTripped).to.be.false;
           console.log("   -> Guardian reset verified");
       } catch (err) {

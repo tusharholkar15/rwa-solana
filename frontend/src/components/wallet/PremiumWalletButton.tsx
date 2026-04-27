@@ -68,17 +68,19 @@ export default function PremiumWalletButton({ className = '' }: PremiumWalletBut
   const baseButtonStyles = "relative h-10 px-4 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all duration-300 flex items-center gap-2 overflow-hidden";
 
   if (!connected) {
+
     return (
-      <motion.button
-        whileHover={{ scale: 1.02 }}
-        whileTap={{ scale: 0.98 }}
-        onClick={() => setVisible(true)}
-        className={`${baseButtonStyles} bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-500/20 sweep-effect ${className}`}
-      >
-        <Wallet size={14} className={connecting ? 'animate-pulse' : ''} />
-        <span>{connecting ? 'Authorizing...' : 'Connect Protocol'}</span>
-        {!connecting && <ArrowRight size={14} className="opacity-40 group-hover:translate-x-1 transition-transform" />}
-      </motion.button>
+      <div className="flex items-center gap-2">
+        <motion.button
+          whileHover={{ scale: 1.02 }}
+          whileTap={{ scale: 0.98 }}
+          onClick={() => setVisible(true)}
+          className={`${baseButtonStyles} bg-surface-900 border border-white/10 text-white/70 hover:text-white sweep-effect ${className}`}
+        >
+          <Wallet size={14} className={connecting ? 'animate-pulse' : ''} />
+          <span>{connecting ? 'Authorizing...' : 'Connect'}</span>
+        </motion.button>
+      </div>
     );
   }
 

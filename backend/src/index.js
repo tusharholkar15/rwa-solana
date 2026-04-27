@@ -153,7 +153,7 @@ app.get("/api/health", async (req, res) => {
   }
 
   try {
-    const connection = new Connection(process.env.SOLANA_RPC_URL || "https://api.devnet.solana.com");
+    const connection = new Connection(process.env.SOLANA_RPC_URL || "https://api.testnet.solana.com");
     await connection.getSlot();
     solanaStatus = "connected";
   } catch (e) {
@@ -161,8 +161,8 @@ app.get("/api/health", async (req, res) => {
   }
 
   try {
-    const latestPrices = await oracleService.getLatestPrices?.() || {};
-    if (Object.keys(latestPrices).length > 0) oracleStatus = "operational";
+    const oracleHealth = await oracleService.getHealth();
+    if (oracleHealth && oracleHealth.isHeartbeatActive) oracleStatus = "operational";
   } catch (e) {
     req.log.error("Oracle health check failed", { error: e.message });
   }
@@ -180,7 +180,7 @@ app.get("/api/health", async (req, res) => {
       oracle: oracleStatus,
     },
     timestamp: new Date().toISOString(),
-    network: process.env.SOLANA_NETWORK || "devnet",
+    network: process.env.SOLANA_NETWORK || "testnet",
     version: "1.2.0-stable",
   });
 });
@@ -251,7 +251,7 @@ async function startServer() {
 ║     🏗️  RWA Tokenization Platform - Backend API     ║
 ╠══════════════════════════════════════════════════════╣
 ║  Server:   http://localhost:${PORT}                    ║
-║  Network:  ${(process.env.SOLANA_NETWORK || "devnet").padEnd(40)}║
+║  Network:  ${(process.env.SOLANA_NETWORK || "testnet").padEnd(40)}║
 ║  MongoDB:  Connected                                ║
 ║  Websocket:Ready ✅                                  ║
 ║  Status:   Ready ✅                                  ║

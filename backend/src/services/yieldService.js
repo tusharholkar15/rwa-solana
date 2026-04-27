@@ -16,6 +16,25 @@ class YieldService {
    * Get real-time pending yield for a user
    */
   async getPendingYield(assetAddress, userAddress) {
+    // ─── Institutional Sandbox Simulation ─────────────────────────
+    if (userAddress === "DemoWa11etXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX") {
+      const now = Date.now();
+      const startTime = 1713691200000; // Fixed simulation epoch (e.g., April 21, 2024)
+      const elapsedSeconds = (now - startTime) / 1000;
+      
+      // Simulate 0.0001 SOL base plus a small growth rate per second
+      const baseYield = 0.42; 
+      const ratePerSec = 0.0000001; 
+      const amountSol = baseYield + (elapsedSeconds * ratePerSec);
+
+      return {
+        amount: Math.floor(amountSol * 1e9),
+        amountSol: amountSol,
+        lastTransaction: Math.floor(now / 1000) - 3600,
+        isSimulated: true
+      };
+    }
+
     try {
       const program = anchorClient.getProgram();
       const assetPubkey = new PublicKey(assetAddress);

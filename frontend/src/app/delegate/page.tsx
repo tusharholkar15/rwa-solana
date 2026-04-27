@@ -224,7 +224,7 @@ export default function DelegationBoardPage() {
                   </button>
                   <button
                     onClick={() => {
-                      alert('Delegation instruction sent to Solana DEVNET!');
+                      alert('Delegation instruction sent to Solana TESTNET!');
                       setSelectedDelegate(null);
                     }}
                     style={{ flex: 1, padding: '14px', borderRadius: '12px', background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', color: '#fff', border: 'none', fontWeight: '600', cursor: 'pointer' }}

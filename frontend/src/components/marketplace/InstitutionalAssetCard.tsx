@@ -53,9 +53,22 @@ const InstitutionalAssetCard = React.memo(
     const [isClaiming, setIsClaiming] = React.useState(false);
     const flashTimeoutRef = React.useRef<NodeJS.Timeout>();
 
-    // Fetch pending yield if user has shares
+    // Use Intersection Observer to only poll for yield when visible
+    const [isVisible, setIsVisible] = React.useState(false);
+    const cardRef = React.useRef<HTMLDivElement>(null);
+
     React.useEffect(() => {
-      if (!publicKey || !asset.onChainAddress || !asset.userShares) return;
+      const observer = new IntersectionObserver(
+        ([entry]) => setIsVisible(entry.isIntersecting),
+        { threshold: 0.1 }
+      );
+      if (cardRef.current) observer.observe(cardRef.current);
+      return () => observer.disconnect();
+    }, []);
+
+    // Fetch pending yield if user has shares AND card is visible
+    React.useEffect(() => {
+      if (!publicKey || !asset.onChainAddress || !asset.userShares || !isVisible) return;
 
       const fetchYield = async () => {
         try {
@@ -68,9 +81,9 @@ const InstitutionalAssetCard = React.memo(
       };
 
       fetchYield();
-      const interval = setInterval(fetchYield, 30000); // Polling for yield
+      const interval = setInterval(fetchYield, 30000); 
       return () => clearInterval(interval);
-    }, [publicKey, asset.onChainAddress, asset.userShares]);
+    }, [publicKey, asset.onChainAddress, asset.userShares, isVisible]);
 
     const handleClaim = async (e: React.MouseEvent) => {
       e.preventDefault();
@@ -79,8 +92,6 @@ const InstitutionalAssetCard = React.memo(
 
       setIsClaiming(true);
       try {
-        // This would call the Solana program instruction via a wallet provider
-        // For now, we simulate the UI feedback
         console.log("Claiming yield for", asset.name);
         await new Promise(r => setTimeout(r, 1500));
         setPendingYield(0);
@@ -93,7 +104,7 @@ const InstitutionalAssetCard = React.memo(
     };
 
     React.useEffect(() => {
-      if (!socket || !asset._id) return;
+      if (!socket || !asset._id || !isVisible) return;
 
       socket.emit('subscribe:asset', asset._id);
 
@@ -118,7 +129,7 @@ const InstitutionalAssetCard = React.memo(
         socket.off('asset_event', handleEvent);
         if (flashTimeoutRef.current) clearTimeout(flashTimeoutRef.current);
       };
-    }, [socket, asset._id]);
+    }, [socket, asset._id, isVisible]);
 
     // Move all derivations into useMemo for stability
     const stats = React.useMemo(() => {
@@ -127,7 +138,6 @@ const InstitutionalAssetCard = React.memo(
       const yieldApy = (asset.annualYieldBps / 100).toFixed(1);
       const priceSol = lamportsToSol(asset.pricePerToken).toFixed(3);
       
-      // Downsampled sparkline points (max 30) - simple every Nth point if long
       const rawPoints = [7.2, 7.3, 7.1, 7.4, 7.5, 7.4, 7.8];
       const sparklineData = rawPoints.map((v, i) => v + (Math.sin(i + (asset._id?.charCodeAt(0) || 0)) * 0.2));
 
@@ -135,7 +145,10 @@ const InstitutionalAssetCard = React.memo(
     }, [asset._id, asset.assetType, asset.annualYieldBps, asset.pricePerToken, asset.totalSupply, asset.availableSupply]);
 
     return (
-      <div className="group block institutional-card-optimized overflow-hidden bg-surface-900 border border-white/5 rounded-2xl transition-all duration-300 hover:border-emerald-500/30 hover:shadow-2xl hover:shadow-emerald-500/5">
+      <div 
+        ref={cardRef}
+        className="group block institutional-card-optimized overflow-hidden bg-surface-900 border border-white/5 rounded-2xl transition-all duration-300 hover:border-emerald-500/30 hover:shadow-2xl hover:shadow-emerald-500/5 will-change-transform"
+      >
         <Link href={`/asset/${asset._id}`}>
           {/* Image / Header - Simplified effects */}
           <div className="relative h-60 overflow-hidden bg-surface-950">
@@ -143,9 +156,9 @@ const InstitutionalAssetCard = React.memo(
               src={asset.images?.[0]} 
               alt={asset.name} 
               assetType={asset.assetType}
-              loading="lazy"
+              loading={index < 6 ? 'eager' : 'lazy'}
               decoding="async"
-              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700 ease-out" 
+              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700 ease-out will-change-transform" 
             />
             
             <div className="absolute inset-0 bg-gradient-to-t from-surface-950 via-surface-950/20 to-transparent" />

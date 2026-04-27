@@ -146,11 +146,11 @@ class OracleService {
             program.programId
           );
 
-          // Pyth Devnet Price Feed (Default to SOL/USD if not configured per asset)
+          // Pyth Testnet Price Feed (Default to SOL/USD if not configured per asset)
           // Feed: J83w4P9N k k k k k k k k k k k k k k k k k k 
           // Actually we need the PriceUpdateV2 account. 
-          // On Devnet: 7UVim1guvfS7uR9v86KCHiVNm8asH677V6UFDzC2Q8Ym
-          const PYTH_PRICE_UPDATE_DEVNET = new PublicKey("7UVim1guvfS7uR9v86KCHiVNm8asH677V6UFDzC2Q8Ym");
+          // On Testnet: 7UVim1guvfS7uR9v86KCHiVNm8asH677V6UFDzC2Q8Ym
+          const PYTH_PRICE_UPDATE_TESTNET = new PublicKey("7UVim1guvfS7uR9v86KCHiVNm8asH677V6UFDzC2Q8Ym");
 
           logger.info({ assetId: asset._id, assetPubkey: asset.onChainAddress }, "[OracleService] Syncing price to Solana...");
 
@@ -165,7 +165,7 @@ class OracleService {
               circuitBreaker: cbAddress,
               priceUpdate: asset.rehearsalMode === "oracle_staleness" 
                 ? assetPubkey // Pass wrong account type to trigger failure check on-chain
-                : PYTH_PRICE_UPDATE_DEVNET,
+                : PYTH_PRICE_UPDATE_TESTNET,
               switchboardAggregator: asset.switchboardAggregator || PublicKey.default, // New account in UpdatePrice
               priceHistory: historyAddress,
             })

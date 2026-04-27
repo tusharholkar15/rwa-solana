@@ -297,7 +297,7 @@ class IndexerService {
         process.env.PROGRAM_ID || "RwaP111111111111111111111111111111111111111"
       );
       const connection = new anchor.web3.Connection(
-        process.env.SOLANA_RPC_URL || "https://api.devnet.solana.com",
+        process.env.SOLANA_RPC_URL || "https://api.testnet.solana.com",
         "confirmed"
       );
 

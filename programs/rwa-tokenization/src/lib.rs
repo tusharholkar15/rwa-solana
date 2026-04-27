@@ -7,7 +7,7 @@ pub mod state;
 use instructions::*;
 use state::*;
 
-declare_id!("RWATokenXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
+declare_id!("RwaP111111111111111111111111111111111111111");
 
 #[program]
 pub mod rwa_tokenization {
