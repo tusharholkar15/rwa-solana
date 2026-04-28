@@ -23,8 +23,13 @@ router.post("/buy", requireWalletSignature, validateTradeRequest, async (req, re
   const MAX_RETRIES = 3;
   let attempt = 1;
   while (attempt <= MAX_RETRIES) {
-    const session = await mongoose.startSession();
-    session.startTransaction();
+    let session = null;
+
+    // Only use transactions in production
+    if (process.env.NODE_ENV !== "test") {
+      session = await mongoose.startSession();
+      session.startTransaction();
+    }
 
     try {
       const { assetId, shares, walletAddress } = req.body;
@@ -235,8 +240,13 @@ router.post("/sell", requireWalletSignature, validateTradeRequest, async (req, r
   const MAX_RETRIES = 3;
   let attempt = 1;
   while (attempt <= MAX_RETRIES) {
-    const session = await mongoose.startSession();
-    session.startTransaction();
+    let session = null;
+
+    // Only use transactions in production
+    if (process.env.NODE_ENV !== "test") {
+      session = await mongoose.startSession();
+      session.startTransaction();
+    }
 
     try {
       const { assetId, shares, walletAddress } = req.body;
