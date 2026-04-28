@@ -25,22 +25,11 @@
       ]
     },
     {
-      "name": "initialize_price_history",
-      "accounts": [
-        { "name": "authority", "isMut": true, "isSigner": true },
-        { "name": "asset", "isMut": false, "isSigner": false },
-        { "name": "priceHistory", "isMut": true, "isSigner": false },
-        { "name": "systemProgram", "isMut": false, "isSigner": false }
-      ],
-      "args": []
-    },
-    {
       "name": "update_price",
       "accounts": [
         { "name": "authority", "isMut": false, "isSigner": true },
         { "name": "asset", "isMut": true, "isSigner": false },
         { "name": "circuitBreaker", "isMut": true, "isSigner": false },
-        { "name": "priceUpdate", "isMut": false, "isSigner": false },
         { "name": "priceHistory", "isMut": true, "isSigner": false }
       ],
       "args": [
@@ -59,17 +48,6 @@
       "args": [
         { "name": "amount", "type": "u64" }
       ]
-    },
-    {
-      "name": "claim_yield",
-      "accounts": [
-        { "name": "holder", "isMut": true, "isSigner": true },
-        { "name": "asset", "isMut": false, "isSigner": false },
-        { "name": "treasury", "isMut": true, "isSigner": false },
-        { "name": "userOwnership", "isMut": true, "isSigner": false },
-        { "name": "systemProgram", "isMut": false, "isSigner": false }
-      ],
-      "args": []
     }
   ],
   "accounts": [
@@ -116,17 +94,6 @@
           { "name": "bump", "type": "u8" }
         ]
       }
-    }
-  ],
-  "events": [
-    {
-      "name": "PriceUpdated",
-      "fields": [
-        { "name": "asset", "type": "publicKey", "index": false },
-        { "name": "price", "type": "u64", "index": false },
-        { "name": "oracleSource", "type": "u8", "index": false },
-        { "name": "timestamp", "type": "i64", "index": false }
-      ]
     }
   ]
 }
