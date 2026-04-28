@@ -52,6 +52,11 @@ class IndexerService {
   }
 
   _initEventParser() {
+    // Skip Anchor initialization in test mode — not needed for tests
+    if (process.env.NODE_ENV === "test") {
+      return;
+    }
+
     try {
       const programId = new anchor.web3.PublicKey(
         process.env.PROGRAM_ID || "RwaP111111111111111111111111111111111111111"

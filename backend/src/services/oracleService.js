@@ -18,11 +18,14 @@ class OracleService {
     this.heartbeatRun = false;
     this.TWAP_PERIOD_MS = 60 * 60 * 1000;
     this.isSolanaConnected = false;
-    
-    // Initialize Solana on boot
-    anchorClient.initialize()
-      .then(() => { this.isSolanaConnected = true; })
-      .catch(() => { this.isSolanaConnected = false; });
+
+    // Skip Anchor initialization in test mode
+    if (process.env.NODE_ENV !== "test") {
+      // Initialize Solana on boot
+      anchorClient.initialize()
+        .then(() => { this.isSolanaConnected = true; })
+        .catch(() => { this.isSolanaConnected = false; });
+    }
   }
 
   async startHeartbeat(intervalMs = 15 * 60 * 1000) {
