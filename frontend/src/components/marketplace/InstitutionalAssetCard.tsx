@@ -106,7 +106,10 @@ const InstitutionalAssetCard = React.memo(
     React.useEffect(() => {
       if (!socket || !asset._id || !isVisible) return;
 
-      socket.emit('subscribe:asset', asset._id);
+      // Delay subscription to prevent spam while scrolling
+      const timeoutId = setTimeout(() => {
+        socket.emit('subscribe:asset', asset._id);
+      }, 500);
 
       const handleEvent = (payload: any) => {
         if (payload.type === 'PRICE_UPDATE' && payload.assetId === asset._id) {
@@ -125,6 +128,7 @@ const InstitutionalAssetCard = React.memo(
       socket.on('asset_event', handleEvent);
 
       return () => {
+        clearTimeout(timeoutId);
         socket.emit('unsubscribe:asset', asset._id);
         socket.off('asset_event', handleEvent);
         if (flashTimeoutRef.current) clearTimeout(flashTimeoutRef.current);
@@ -204,7 +208,7 @@ const InstitutionalAssetCard = React.memo(
                 <motion.div 
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="bg-surface-950/90 backdrop-blur-md border border-emerald-500/30 rounded-xl p-3 shadow-2xl"
+                  className="bg-surface-950/90 backdrop-blur-sm border border-emerald-500/30 rounded-xl p-3 shadow-2xl"
                 >
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">

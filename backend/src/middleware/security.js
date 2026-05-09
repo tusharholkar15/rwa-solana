@@ -46,6 +46,7 @@ const sanitizeMiddleware = (req, res, next) => {
  * Mandatory cryptographic signature verification.
  */
 const requireWalletSignature = (req, res, next) => {
+
   try {
     // Skip auth in test mode
     if (process.env.NODE_ENV === "test") {
@@ -64,8 +65,8 @@ const requireWalletSignature = (req, res, next) => {
     const timestampMatch = message.match(/: (\d+)$/);
     if (timestampMatch) {
       const timestamp = parseInt(timestampMatch[1], 10);
-      if (Date.now() - timestamp > 2 * 60 * 1000) {
-        return res.status(401).json({ error: "Signature expired", message: "Institutional session expired (2m window). Please re-authenticate." });
+      if (Date.now() - timestamp > 5 * 60 * 1000) {
+        return res.status(401).json({ error: "Signature expired", message: "Institutional session expired (5m window). Please re-authenticate." });
       }
     }
 

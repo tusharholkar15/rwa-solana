@@ -20,7 +20,7 @@ if (process.env.ADMIN_PRIVATE_KEY) {
   } catch {
     try {
       // Try base58 decode
-      const bs58 = require("bs58");
+      const bs58 = require("bs58").default;
       adminKeypair = Keypair.fromSecretKey(
         bs58.decode(process.env.ADMIN_PRIVATE_KEY)
       );

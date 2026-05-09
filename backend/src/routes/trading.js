@@ -26,7 +26,7 @@ router.post("/buy", requireWalletSignature, validateTradeRequest, async (req, re
     let session = null;
 
     // Only use transactions in production
-    if (process.env.NODE_ENV !== "test") {
+    if (process.env.NODE_ENV === "production") {
       session = await mongoose.startSession();
       session.startTransaction();
     }
@@ -58,24 +58,14 @@ router.post("/buy", requireWalletSignature, validateTradeRequest, async (req, re
       // 2. Validate/Create user (with session)
       let user = await User.findOne({ walletAddress }).session(session);
       
-      // Auto-approve in development for testing
-      if (process.env.NODE_ENV === "development" && user && user.kycStatus !== "approved") {
-        user.kycStatus = "approved";
-        user.isWhitelisted = true;
-        await user.save({ session });
-      }
-
-      if (!user || user.kycStatus !== "approved") {
-        if (session) await session.abortTransaction();
-        return res.status(403).json({ error: "KYC verification required" });
-      }
-      
-      if (process.env.NODE_ENV === "development") {
+      // Institutional Hardening: Auto-provision dev users for seamless testing
+      const isDev = process.env.NODE_ENV === "development" || process.env.NODE_ENV === "dev";
+      if (isDev) {
         if (!user) {
           user = new User({
             walletAddress,
-            name: "Dev User",
-            email: "dev@example.com",
+            name: "Dev Institutional User",
+            email: "dev@rwa-protocol.internal",
             kycStatus: "approved",
             isWhitelisted: true,
           });
@@ -89,7 +79,10 @@ router.post("/buy", requireWalletSignature, validateTradeRequest, async (req, re
 
       if (!user || user.kycStatus !== "approved") {
         if (session) await session.abortTransaction();
-        return res.status(403).json({ error: "KYC verification required" });
+        return res.status(403).json({ 
+          error: "KYC verification required",
+          details: "Your institutional identity must be verified before participating in primary markets."
+        });
       }
 
       // 3. Update Financials
@@ -243,7 +236,7 @@ router.post("/sell", requireWalletSignature, validateTradeRequest, async (req, r
     let session = null;
 
     // Only use transactions in production
-    if (process.env.NODE_ENV !== "test") {
+    if (process.env.NODE_ENV === "production") {
       session = await mongoose.startSession();
       session.startTransaction();
     }
@@ -261,15 +254,30 @@ router.post("/sell", requireWalletSignature, validateTradeRequest, async (req, r
 
       // 2. Validate user (with session)
       let user = await User.findOne({ walletAddress }).session(session);
-      if (process.env.NODE_ENV === "development" && user && user.kycStatus !== "approved") {
-        user.kycStatus = "approved";
-        user.isWhitelisted = true;
-        await user.save({ session });
+      
+      if (process.env.NODE_ENV === "development") {
+        if (!user) {
+          user = new User({
+            walletAddress,
+            name: "Dev Institutional User",
+            email: "dev@rwa-protocol.internal",
+            kycStatus: "approved",
+            isWhitelisted: true,
+          });
+          await user.save({ session });
+        } else if (user.kycStatus !== "approved") {
+          user.kycStatus = "approved";
+          user.isWhitelisted = true;
+          await user.save({ session });
+        }
       }
 
       if (!user || user.kycStatus !== "approved") {
         if (session) await session.abortTransaction();
-        return res.status(403).json({ error: "KYC verification required" });
+        return res.status(403).json({ 
+          error: "KYC verification required",
+          details: "Your institutional identity must be verified before participating in primary markets."
+        });
       }
 
       // 3. Validate Portfolio & Holding (with session)

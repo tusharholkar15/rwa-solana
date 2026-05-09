@@ -26,11 +26,13 @@ export const SolanaWalletProvider: FC<Props> = ({ children }) => {
   ], []);
 
   const onError = useCallback((error: WalletError) => {
-    // Log the error professionally instead of allowing an unhandled runtime exception
-    console.warn('Wallet connection error intercepted:', error.name, error.message);
+    // Specifically ignore MetaMask/inpage.js errors that cause crashes in dev mode
+    if (error.message?.includes('MetaMask') || error.message?.includes('inpage.js')) {
+      return;
+    }
     
-    // Optionally alert the user if it's a critical failure, but usually these are 
-    // "User rejected" or "Extension not found" which don't need a full crash overlay.
+    // Log other errors professionally
+    console.warn('[Wallet] Error intercepted:', error.name, error.message);
   }, []);
 
   return (

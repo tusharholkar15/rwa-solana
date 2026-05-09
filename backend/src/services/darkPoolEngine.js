@@ -9,7 +9,7 @@ const auditService = require("./auditService");
 const transferAgentService = require("./transferAgentService");
 const solanaService = require("./solanaService");
 const { Keypair } = require("@solana/web3.js");
-const bs58 = require("bs58");
+const bs58 = require("bs58").default;
 const crypto = require("crypto");
 const { v4: uuidv4 } = require("uuid");
 

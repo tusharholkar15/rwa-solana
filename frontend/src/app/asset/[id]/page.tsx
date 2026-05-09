@@ -22,11 +22,13 @@ import SwapInterface from '@/components/marketplace/SwapInterface';
 import PropertyGovernance from '@/components/shared/PropertyGovernance';
 import OTCModal from '@/components/marketplace/OTCModal';
 import SafeImage from '@/components/shared/SafeImage';
+import { useAuth } from '@/context/AuthContext';
 
 export default function AssetDetailPage() {
   const params = useParams();
   const id = params.id as string;
   const { connected, publicKey } = useWallet();
+  const { isAuthenticated, login } = useAuth();
   const [asset, setAsset] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [solPrice, setSolPrice] = useState(145);
@@ -499,7 +501,7 @@ export default function AssetDetailPage() {
                   >
                     {/* Asset Snapshot Card */}
                     <div className="mb-10 text-center">
-                       <div className="text-[10px] font-bold text-emerald-500 uppercase tracking-[0.25em] mb-4">Secondary Liquidity Hub</div>
+                        <div className="text-[10px] font-bold text-indigo-400 uppercase tracking-[0.25em] mb-4">Primary Offering Hub</div>
                        <div className="text-4xl font-display font-black text-white mb-1">
                          {lamportsToSol(asset.pricePerToken).toFixed(4)} <span className="text-white/40 text-lg uppercase font-bold tracking-widest">SOL</span>
                        </div>
@@ -541,11 +543,11 @@ export default function AssetDetailPage() {
                        </div>
 
                        <button 
-                         onClick={activeTab === 'buy' ? handleBuy : handleSell}
+                         onClick={!isAuthenticated ? login : (activeTab === 'buy' ? handleBuy : handleSell)}
                          disabled={!connected || tradeLoading || (activeTab === 'buy' ? !buyAmount : !sellAmount)}
                          className={`w-full py-5 rounded-2xl font-display font-black text-white uppercase tracking-[0.2em] transition-all transform active:scale-[0.98] shadow-2xl ${activeTab === 'buy' ? 'bg-emerald-500 hover:bg-emerald-400 shadow-emerald-500/20' : 'bg-rose-500 hover:bg-rose-400 shadow-rose-500/20'} disabled:opacity-20 disabled:grayscale disabled:pointer-events-none`}
                        >
-                         {tradeLoading ? 'Transacting...' : !connected ? 'Connect Protocol' : `${activeTab.toUpperCase()} ASSET`}
+                         {tradeLoading ? 'Transacting...' : !connected ? 'Connect Protocol' : !isAuthenticated ? 'Verify Identity (SIWS)' : `${activeTab.toUpperCase()} ASSET`}
                        </button>
 
                        {tradeMessage && (

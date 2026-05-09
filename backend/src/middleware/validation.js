@@ -109,8 +109,8 @@ function validateTradeRequest(req, res, next) {
   if (!assetId) errors.push('Asset ID is required');
 
   const sharesNum = Number(shares);
-  if (!shares || isNaN(sharesNum) || sharesNum <= 0 || !Number.isInteger(sharesNum))
-    errors.push('Shares must be a positive integer');
+  if (!shares || isNaN(sharesNum) || sharesNum <= 0)
+    errors.push('Shares must be a positive number');
 
   if (!walletAddress) {
     errors.push('Wallet address is required');

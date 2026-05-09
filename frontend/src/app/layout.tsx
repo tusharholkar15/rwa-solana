@@ -8,6 +8,9 @@ import { RealtimeProvider } from '@/context/RealtimeContext';
 import { AuthProvider } from '@/context/AuthContext';
 import Navbar from '@/components/layout/Navbar';
 
+import { ReactNode } from 'react';
+import BrowserFixer from '@/components/shared/BrowserFixer';
+
 export const metadata: Metadata = {
   title: 'SolanaEstate | Tokenized Real World Assets',
   description:
@@ -18,11 +21,33 @@ export const metadata: Metadata = {
 export default function RootLayout({
   children,
 }: {
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
     <html lang="en" suppressHydrationWarning>
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function() {
+                const origError = console.error;
+                console.error = function(...args) {
+                  const msg = args[0] ? args[0].toString() : "";
+                  if (msg.includes("MetaMask") || msg.includes("nkbihfbeogaeaoehlefnkodbefgpgknn")) return;
+                  origError.apply(console, args);
+                };
+                window.addEventListener("unhandledrejection", function(e) {
+                  if (e.reason && e.reason.message && e.reason.message.includes("MetaMask")) {
+                    e.preventDefault();
+                  }
+                });
+              })();
+            `,
+          }}
+        />
+      </head>
       <body className="min-h-screen bg-surface-950 font-sans antialiased text-white">
+        <BrowserFixer />
         <SolanaWalletProvider>
           <AuthProvider>
             <RealtimeProvider>

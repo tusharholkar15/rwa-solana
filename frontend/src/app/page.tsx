@@ -214,10 +214,11 @@ export default function LandingPage() {
           >
             <div className="relative z-10 p-4 institutional-glass">
               <div className="rounded-xl overflow-hidden aspect-[4/3] relative">
-                <img 
+                <Image 
                   src="/assets/hero-rwa.png" 
                   alt="Institutional Estate" 
-                  className="w-full h-full object-cover"
+                  fill
+                  className="object-cover"
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-surface-950 via-transparent to-transparent opacity-60" />
                 
@@ -331,11 +332,12 @@ export default function LandingPage() {
       <section className="relative py-32 px-4 bg-emerald-500/[0.02]">
         <div className="max-w-7xl mx-auto grid lg:grid-cols-2 gap-20 items-center">
           <div className="order-2 lg:order-1">
-             <div className="relative">
-                <img 
+             <div className="relative aspect-video">
+                <Image 
                   src="/assets/global-map.png" 
                   alt="Global Map" 
-                  className="w-full opacity-80"
+                  fill
+                  className="opacity-80 object-contain"
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-surface-950 via-transparent to-transparent" />
              </div>

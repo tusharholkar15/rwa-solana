@@ -2,6 +2,8 @@ const express = require("express");
 const router = express.Router();
 const kycService = require("../services/kycService");
 const { validateKycSubmission } = require("../middleware/validation");
+const { requireWalletSignature, requireRole } = require("../middleware/security");
+const requireAdmin = requireRole("admin");
 
 /**
  * POST /api/kyc/verify
@@ -45,7 +47,7 @@ router.get("/status/:wallet", async (req, res) => {
  * POST /api/kyc/approve
  * Admin: Approve KYC verification
  */
-router.post("/approve", async (req, res) => {
+router.post("/approve", requireAdmin, async (req, res) => {
   try {
     const { walletAddress } = req.body;
 
@@ -65,7 +67,7 @@ router.post("/approve", async (req, res) => {
  * POST /api/kyc/reject
  * Admin: Reject KYC verification
  */
-router.post("/reject", async (req, res) => {
+router.post("/reject", requireAdmin, async (req, res) => {
   try {
     const { walletAddress, reason } = req.body;
 
@@ -85,7 +87,7 @@ router.post("/reject", async (req, res) => {
  * GET /api/kyc/pending
  * Admin: Get all pending KYC applications
  */
-router.get("/pending", async (req, res) => {
+router.get("/pending", requireAdmin, async (req, res) => {
   try {
     const applications = await kycService.getPendingApplications();
     res.json({ applications, count: applications.length });

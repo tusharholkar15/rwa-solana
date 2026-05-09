@@ -87,8 +87,16 @@ redis.on('connect', () => {
   console.log('Redis connected successfully');
 });
 
+let connectionErrorLogged = false;
 redis.on('error', (err) => {
-  console.error('Redis connection error:', err);
+  if (process.env.NODE_ENV === 'development' && (err.code === 'ECONNREFUSED' || err.message.includes('ECONNREFUSED'))) {
+    if (!connectionErrorLogged) {
+      console.log('Redis not detected — some features like background queueing may be degraded. (Using memory fallbacks)');
+      connectionErrorLogged = true;
+    }
+  } else {
+    console.error('Redis connection error:', err.message);
+  }
 });
 
 module.exports = redis;

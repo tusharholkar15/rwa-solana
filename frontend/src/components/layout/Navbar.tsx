@@ -251,7 +251,7 @@ export default function Navbar() {
           background: scrolled
             ? 'rgba(7, 8, 20, 0.85)'
             : 'rgba(255,255,255,0.03)',
-          backdropFilter: 'blur(24px)',
+          backdropFilter: 'blur(12px)',
           boxShadow: scrolled ? '0 16px 40px rgba(0,0,0,0.4), 0 0 1px rgba(16,185,129,0.1)' : 'none',
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           padding: '0 16px',

@@ -36,7 +36,8 @@ class KycService {
     await user.save();
 
     // Simulate async verification (auto-approve after delay in dev)
-    if (process.env.NODE_ENV === "development") {
+    const isDev = process.env.NODE_ENV === "development" || process.env.NODE_ENV === "dev";
+    if (isDev) {
       setTimeout(async () => {
         await this.approveVerification(walletAddress);
       }, 3000); // Auto-approve after 3 seconds in dev

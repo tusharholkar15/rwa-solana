@@ -9,6 +9,7 @@ const { paginationMeta } = require("../utils/helpers");
 const { isDatabaseConnected } = require("../config/database");
 const { getMockAssets, getMockAsset } = require("../utils/mockAssets");
 const cacheService = require("../services/cacheService");
+const redis = require("../config/redis");
 
 /**
  * GET /api/assets
@@ -38,11 +39,10 @@ router.get("/", async (req, res) => {
       if (type) filter.assetType = type;
       if (status) filter.status = status;
       if (search) {
-        const safeSearch = search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); // Simple escape
         filter.$or = [
-          { name: { $regex: safeSearch, $options: "i" } },
-          { description: { $regex: safeSearch, $options: "i" } },
-          { "location.city": { $regex: safeSearch, $options: "i" } },
+          { name: { $regex: search, $options: "i" } },
+          { description: { $regex: search, $options: "i" } },
+          { "location.city": { $regex: search, $options: "i" } },
         ];
       }
       if (minPrice) filter.pricePerToken = { ...filter.pricePerToken, $gte: Number(minPrice) };
@@ -186,10 +186,7 @@ router.post("/", requireAdmin, validateAssetCreation, async (req, res) => {
     await asset.save();
 
     // Invalidate list caches
-    const keys = await redis.keys("assets:list:*");
-    if (keys.length > 0) {
-      await redis.del(...keys);
-    }
+    await cacheService.invalidatePattern("assets:list:*");
 
     res.status(201).json({
       message: "Asset created successfully",
@@ -250,11 +247,8 @@ router.delete("/:id", requireAdmin, async (req, res) => {
     await asset.save();
 
     // Invalidate relevant caches
-    const keys = await redis.keys("assets:list:*");
-    if (keys.length > 0) {
-      await redis.del(...keys);
-    }
-    await redis.del(`asset:${req.params.id}`);
+    await cacheService.invalidatePattern("assets:list:*");
+    await cacheService.del(`asset:${req.params.id}`);
 
     res.json({ message: "Asset delisted successfully" });
   } catch (error) {

@@ -1,3 +1,4 @@
+require("dotenv").config();
 const backgroundWorkerService = require("./services/backgroundWorkerService");
 const oracleMonitoringService = require("./services/oracleMonitoringService");
 const indexerService = require("./services/indexerService");
@@ -154,10 +155,14 @@ app.get("/api/health", async (req, res) => {
 
   try {
     const connection = new Connection(process.env.SOLANA_RPC_URL || "https://api.testnet.solana.com");
-    await connection.getSlot();
+    // Use 2s timeout to prevent health check from hanging on slow testnet RPCs
+    await Promise.race([
+      connection.getSlot(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("RPC Timeout")), 2000))
+    ]);
     solanaStatus = "connected";
   } catch (e) {
-    req.log.error("Solana health check failed", { error: e.message });
+    req.log.error("Solana health check failed or timed out", { error: e.message });
   }
 
   try {

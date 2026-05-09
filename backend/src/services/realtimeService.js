@@ -21,16 +21,43 @@ class RealtimeService {
 
     // We can fallback to an in-memory setup if REDIS_URL is purely local or not set for quick dev
     const redisUrl = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
+    const isDev = process.env.NODE_ENV === 'development';
     
     try {
-      this.redisPub = new Redis(redisUrl, { lazyConnect: true });
-      this.redisSub = new Redis(redisUrl, { lazyConnect: true });
+      this.redisPub = new Redis(redisUrl, { 
+        lazyConnect: true,
+        maxRetriesPerRequest: (isDev ? 0 : 10),
+        enableReadyCheck: false,
+        reconnectOnError: () => false
+      });
+      this.redisSub = new Redis(redisUrl, { 
+        lazyConnect: true,
+        maxRetriesPerRequest: (isDev ? 0 : 10),
+        enableReadyCheck: false,
+        reconnectOnError: () => false
+      });
 
-      // Handle Redis connection errors gracefully (especially in dev without local Redis)
-      this.redisPub.on('error', (err) => console.warn('[Realtime] Redis Pub connection failed (will use memory fallback)'));
-      this.redisSub.on('error', (err) => console.warn('[Realtime] Redis Sub connection failed (will use memory fallback)'));
+      // Handle Redis connection errors gracefully
+      const handleRedisError = (type, err) => {
+        if (isDev && (err.code === 'ECONNREFUSED' || err.message.includes('ECONNREFUSED'))) {
+          // Log only once as a info message in dev
+          if (!this[`${type}ErrorLogged` || true]) {
+            console.log(`[Realtime] Local Redis not detected (Sub/Pub ${type}) — using in-memory fallback`);
+            this[`${type}ErrorLogged`] = true;
+          }
+        } else {
+          console.warn(`[Realtime] Redis ${type} connection failed:`, err.message);
+        }
+      };
+
+      this.redisPub.on('error', (err) => handleRedisError('Pub', err));
+      this.redisSub.on('error', (err) => handleRedisError('Sub', err));
+      
+      // Explicitly connect both instances
+      this.redisPub.connect().catch(() => {});
+      this.redisSub.connect().catch(() => {});
     } catch (e) {
-      console.warn('[Realtime] Redis initialization skipped.');
+      console.warn('[Realtime] Redis initialization skipped:', e.message);
     }
 
     this.io = new Server(httpServer, {
@@ -80,12 +107,16 @@ class RealtimeService {
   setupRedisSubscriptions() {
     if (!this.redisSub) return;
     
-    // Subscribe to backend-wide channels
-    this.redisSub.subscribe('asset_updates', 'trade_events', 'governance_events', (err, count) => {
-      if (err) {
-        // console.error('[Realtime] Failed to subscribe to Redis channels', err);
-        return;
-      }
+    // Wait for Redis sub to be ready before subscribing
+    this.redisSub.on('ready', () => {
+      // Subscribe to backend-wide channels
+      this.redisSub.subscribe('asset_updates', 'trade_events', 'governance_events', (err, count) => {
+        if (err) {
+          console.error('[Realtime] Failed to subscribe to Redis channels:', err.message);
+          return;
+        }
+        console.log(`[Realtime] Successfully subscribed to ${count} Redis channels`);
+      });
     });
 
     this.redisSub.on('message', (channel, message) => {
