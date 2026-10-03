@@ -19,7 +19,7 @@ use crate::state::{
 ///
 /// 3. **Status Precision**: Passed proposals transition to `Executed` (not `Passed`),
 ///    preventing idempotency bugs from double-execution.
-pub fn handler(ctx: Context<ExecuteProposal>) -> Result<()> {
+pub fn handler<'info>(ctx: Context<'_, '_, 'info, 'info, ExecuteProposal<'info>>) -> Result<()> {
     let clock = Clock::get()?;
     let proposal = &ctx.accounts.proposal;
     let asset = &ctx.accounts.asset;
@@ -91,28 +91,16 @@ pub fn handler(ctx: Context<ExecuteProposal>) -> Result<()> {
             let treasury_balance = **treasury_info.try_borrow_lamports()?;
             require!(treasury_balance >= target_amount, RwaError::InsufficientTreasury);
 
-            // Perform PDA-signed transfer
-            let asset_key = asset.key();
-            let seeds = &[
-                TreasuryVault::SEED_PREFIX,
-                asset_key.as_ref(),
-                &[bump],
-            ];
-            let signer = &[&seeds[..]];
+            let target_info = ctx.remaining_accounts.get(2).ok_or(RwaError::Unauthorized)?;
+            require_keys_eq!(target_info.key(), target_account, RwaError::Unauthorized);
 
-            anchor_lang::solana_program::program::invoke_signed(
-                &anchor_lang::solana_program::system_instruction::transfer(
-                    &treasury_pda,
-                    &target_account,
-                    target_amount,
-                ),
-                &[
-                    treasury_info.to_account_info(),
-                    ctx.accounts.executor.to_account_info(), // Just for referencing
-                    ctx.accounts.system_program.to_account_info(),
-                ],
-                signer,
-            )?;
+            **treasury_info.try_borrow_mut_lamports()? = treasury_balance
+                .checked_sub(target_amount)
+                .ok_or(RwaError::InsufficientTreasury)?;
+            **target_info.try_borrow_mut_lamports()? = target_info
+                .lamports()
+                .checked_add(target_amount)
+                .ok_or(RwaError::ArithmeticOverflow)?;
 
             msg!("Treasury Reinvestment of {} lamports to {} EXECUTED", target_amount, target_account);
         }

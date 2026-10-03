@@ -7,7 +7,7 @@ pub mod state;
 use instructions::*;
 use state::*;
 
-declare_id!("RwaP111111111111111111111111111111111111111");
+declare_id!("FRYwN6vKAVhQNvEcJ8844XxLe3b8zLwivnZk65dnW9HC");
 
 #[program]
 pub mod rwa_tokenization {
@@ -106,6 +106,11 @@ pub mod rwa_tokenization {
     /// Recovery mechanism for authorized guardians after an anomaly has been resolved.
     pub fn reset_circuit_breaker(ctx: Context<ResetCircuitBreaker>) -> Result<()> {
         instructions::update_price::reset_circuit_breaker_handler(ctx)
+    }
+
+    /// Initialize the oracle circuit breaker for an asset
+    pub fn initialize_circuit_breaker(ctx: Context<InitializeCircuitBreaker>, guardian: Pubkey) -> Result<()> {
+        instructions::update_price::initialize_circuit_breaker_handler(ctx, guardian)
     }
 
     // ═══════════════════════════════════════════════════════
@@ -210,9 +215,12 @@ pub mod rwa_tokenization {
         instructions::create_escrow::handler(ctx, token_amount, sol_amount)
     }
 
-    /// Settle an escrow after the dispute window
-    pub fn settle_escrow(ctx: Context<SettleEscrow>) -> Result<()> {
-        instructions::settle_escrow::handler(ctx)
+    /// Settle an escrow after the dispute window (or dark pool trade with match cert)
+    pub fn settle_escrow(
+        ctx: Context<SettleEscrow>,
+        matching_signature: Option<[u8; 64]>,
+    ) -> Result<()> {
+        instructions::settle_escrow::handler(ctx, matching_signature)
     }
 
     /// Raise a dispute on a funded escrow
@@ -263,7 +271,9 @@ pub mod rwa_tokenization {
     }
 
     /// Execute a governance proposal (finalize voting + return stake)
-    pub fn execute_proposal(ctx: Context<ExecuteProposal>) -> Result<()> {
+    pub fn execute_proposal<'info>(
+        ctx: Context<'_, '_, 'info, 'info, ExecuteProposal<'info>>,
+    ) -> Result<()> {
         instructions::execute_proposal::handler(ctx)
     }
 

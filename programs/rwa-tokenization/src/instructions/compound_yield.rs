@@ -78,7 +78,7 @@ pub fn handler(ctx: Context<CompoundYield>) -> Result<()> {
     let net_yield = yield_to_compound.checked_sub(harvester_fee).unwrap();
 
     // 2. Transfer Harvester Fee
-    **ctx.accounts.treasury.to_account_info().try_borrow_mut_lamports()? -= harvester_fee;
+    **treasury.to_account_info().try_borrow_mut_lamports()? -= harvester_fee;
     **ctx.accounts.harvester.to_account_info().try_borrow_mut_lamports()? += harvester_fee;
 
     // 3. Perform Internal Swap: Net Yield (SOL) -> Tokens
@@ -98,8 +98,8 @@ pub fn handler(ctx: Context<CompoundYield>) -> Result<()> {
     
     // 4. Update Reserves & State
     // Move SOL from Treasury to Pool
-    **ctx.accounts.treasury.to_account_info().try_borrow_mut_lamports()? -= sol_in;
-    **ctx.accounts.pool.to_account_info().try_borrow_mut_lamports()? += sol_in;
+    **treasury.to_account_info().try_borrow_mut_lamports()? -= sol_in;
+    **pool.to_account_info().try_borrow_mut_lamports()? += sol_in;
 
     pool.sol_reserve = pool.sol_reserve.checked_add(sol_in).ok_or(RwaError::ArithmeticOverflow)?;
     pool.token_reserve = pool.token_reserve.checked_sub(tokens_out).ok_or(RwaError::ArithmeticOverflow)?;

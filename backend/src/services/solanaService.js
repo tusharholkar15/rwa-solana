@@ -275,7 +275,7 @@ class SolanaService {
         version: version["solana-core"],
         slot,
         blockHeight,
-        network: process.env.SOLANA_NETWORK || "testnet",
+        network: process.env.SOLANA_NETWORK || "devnet",
         rpcUrl: process.env.SOLANA_RPC_URL,
       };
     } catch (error) {

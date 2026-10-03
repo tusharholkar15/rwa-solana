@@ -53,11 +53,12 @@ pub fn handler(
         .ok_or(RwaError::ArithmeticOverflow)?)
     .integer_sqrt() as u64;
 
-    let pool_key = ctx.accounts.pool.key();
+    let asset_key = ctx.accounts.asset.key();
+    let bump_slice = [ctx.bumps.pool];
     let pool_seeds = &[
         LiquidityPool::SEED_PREFIX,
-        ctx.accounts.asset.key().as_ref(),
-        &[ctx.bumps.pool],
+        asset_key.as_ref(),
+        &bump_slice,
     ];
     let pool_signer = &[&pool_seeds[..]];
 
@@ -141,7 +142,7 @@ pub struct CreatePool<'info> {
         seeds = [AssetAccount::SEED_PREFIX, asset.authority.as_ref(), asset.name.as_bytes()],
         bump = asset.bump,
     )]
-    pub asset: Account<'info, AssetAccount>,
+    pub asset: Box<Account<'info, AssetAccount>>,
 
     /// The liquidity pool PDA
     #[account(
@@ -151,7 +152,7 @@ pub struct CreatePool<'info> {
         seeds = [LiquidityPool::SEED_PREFIX, asset.key().as_ref()],
         bump,
     )]
-    pub pool: Account<'info, LiquidityPool>,
+    pub pool: Box<Account<'info, LiquidityPool>>,
 
     /// LP token mint (created for this pool)
     #[account(
@@ -162,22 +163,26 @@ pub struct CreatePool<'info> {
     )]
     pub lp_mint: Account<'info, Mint>,
 
+    /// The asset's token mint
+    #[account(address = asset.mint)]
+    pub asset_mint: Account<'info, Mint>,
+
     /// Authority's token account for the asset's mint
     #[account(
         mut,
-        token::mint = asset.mint,
+        token::mint = asset_mint,
         token::authority = authority,
     )]
-    pub authority_token_account: Account<'info, TokenAccount>,
+    pub authority_token_account: Box<Account<'info, TokenAccount>>,
 
     /// Pool's token account to hold asset tokens
     #[account(
         init,
         payer = authority,
-        token::mint = asset.mint,
+        token::mint = asset_mint,
         token::authority = pool,
     )]
-    pub pool_token_account: Account<'info, TokenAccount>,
+    pub pool_token_account: Box<Account<'info, TokenAccount>>,
 
     /// Authority's LP token account
     #[account(
@@ -186,7 +191,7 @@ pub struct CreatePool<'info> {
         token::mint = lp_mint,
         token::authority = authority,
     )]
-    pub authority_lp_account: Account<'info, TokenAccount>,
+    pub authority_lp_account: Box<Account<'info, TokenAccount>>,
 
     pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,

@@ -1,10 +1,9 @@
 export const LAMPORTS_PER_SOL = 1_000_000_000;
 
-export const SOLANA_NETWORK = process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'testnet';
+export const SOLANA_NETWORK = process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'devnet';
+export const PROGRAM_ID = process.env.NEXT_PUBLIC_PROGRAM_ID || 'FRYwN6vKAVhQNvEcJ8844XxLe3b8zLwivnZk65dnW9HC';
 
-export const EXPLORER_URL = SOLANA_NETWORK === 'mainnet-beta'
-  ? 'https://solscan.io'
-  : `https://solscan.io?cluster=${SOLANA_NETWORK}`;
+export const EXPLORER_URL = 'https://solscan.io';
 
 export function lamportsToSol(lamports: number): number {
   return lamports / LAMPORTS_PER_SOL;
@@ -35,8 +34,10 @@ export function shortenAddress(address: string, chars = 4): string {
   return `${address.slice(0, chars)}...${address.slice(-chars)}`;
 }
 
-export function getExplorerUrl(signature: string): string {
-  return `${EXPLORER_URL}/tx/${signature}`;
+export function getExplorerUrl(signature: string, type: 'tx' | 'account' = 'tx'): string {
+  if (!signature) return '';
+  const cluster = SOLANA_NETWORK === 'mainnet-beta' ? '' : `?cluster=${SOLANA_NETWORK}`;
+  return `${EXPLORER_URL}/${type}/${signature}${cluster}`;
 }
 
 export function getAssetTypeColor(type: string): string {

@@ -24,12 +24,12 @@ class AnchorClient {
     if (this.isInitialized) return this.program;
 
     try {
-      const rpcUrl = process.env.SOLANA_RPC_URL || "https://api.testnet.solana.com";
-      const programIdStr = process.env.PROGRAM_ID;
+      const rpcUrl = process.env.SOLANA_RPC_URL || "https://api.devnet.solana.com";
+      const programIdStr = process.env.PROGRAM_ID || "FRYwN6vKAVhQNvEcJ8844XxLe3b8zLwivnZk65dnW9HC";
       const adminSecretB58 = process.env.ADMIN_PRIVATE_KEY;
 
-      if (!programIdStr || !adminSecretB58 || adminSecretB58 === "your_admin_private_key_here") {
-        logger.warn("[AnchorClient] Missing credentials — running in read-only mode");
+      if (!adminSecretB58 || adminSecretB58 === "your_admin_private_key_here") {
+        logger.warn("[AnchorClient] Missing admin signing credentials — running in read-only mode");
         this.connection = new anchor.web3.Connection(rpcUrl, "confirmed");
         // Use a dummy wallet for read-only mode
         const dummyKeypair = anchor.web3.Keypair.generate();
@@ -83,7 +83,7 @@ class AnchorClient {
       logger.error({ err: err.message }, "[AnchorClient] Initialization failed");
       // Create a minimal read-only fallback even on total failure
       try {
-        this.connection = new anchor.web3.Connection(process.env.SOLANA_RPC_URL || "https://api.testnet.solana.com", "confirmed");
+        this.connection = new anchor.web3.Connection(process.env.SOLANA_RPC_URL || "https://api.devnet.solana.com", "confirmed");
         this.wallet = new anchor.Wallet(anchor.web3.Keypair.generate());
         const provider = new anchor.AnchorProvider(this.connection, this.wallet, { commitment: "confirmed" });
         this.program = new anchor.Program(idl, provider);

@@ -24,7 +24,7 @@ pub fn handler(ctx: Context<SellShares>, amount: u64) -> Result<()> {
     );
 
     // Validate seller owns enough shares
-    let ownership = &ctx.accounts.user_ownership;
+    let ownership = &mut ctx.accounts.user_ownership;
     require!(
         ownership.shares_owned >= amount,
         RwaError::InsufficientShares
@@ -84,11 +84,10 @@ pub fn handler(ctx: Context<SellShares>, amount: u64) -> Result<()> {
         
         // Retain the remainder in yield_debt
         let remainder = accrued_scaled % YIELD_PRECISION;
-        ctx.accounts.user_ownership.yield_debt = remainder; 
+        ownership.yield_debt = remainder; 
     }
 
     // Update user ownership
-    let ownership = &mut ctx.accounts.user_ownership;
     ownership.shares_owned = ownership
         .shares_owned
         .checked_sub(amount)

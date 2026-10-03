@@ -17,10 +17,7 @@ pub fn handler(
     is_token_to_sol: bool,
 ) -> Result<()> {
     let clock = Clock::get()?;
-    let pool = &ctx.accounts.pool;
-
     require!(amount_in > 0, RwaError::InvalidAmount);
-    require!(pool.is_active, RwaError::PoolNotActive);
 
     // ── Oracle Circuit Breaker Guard ──────────────────────────
     // Block all swaps if the oracle has tripped (stale/manipulated price).
@@ -59,44 +56,54 @@ pub fn handler(
         RwaError::InvestmentLimitExceeded
     );
 
-    // Anti-whale: single swap cannot exceed MAX_SWAP_POOL_BPS of relevant reserve
-    let max_swap = if is_token_to_sol {
-        pool.token_reserve
-            .checked_mul(MAX_SWAP_POOL_BPS as u64)
-            .ok_or(RwaError::ArithmeticOverflow)?
-            / 10000
-    } else {
-        pool.sol_reserve
-            .checked_mul(MAX_SWAP_POOL_BPS as u64)
-            .ok_or(RwaError::ArithmeticOverflow)?
-            / 10000
+    let (amount_out, fee_amount, pool_bump) = {
+        let pool = &ctx.accounts.pool;
+        require!(pool.is_active, RwaError::PoolNotActive);
+
+        // Anti-whale: single swap cannot exceed MAX_SWAP_POOL_BPS of relevant reserve
+        let max_swap = if is_token_to_sol {
+            pool.token_reserve
+                .checked_mul(MAX_SWAP_POOL_BPS as u64)
+                .ok_or(RwaError::ArithmeticOverflow)?
+                / 10000
+        } else {
+            pool.sol_reserve
+                .checked_mul(MAX_SWAP_POOL_BPS as u64)
+                .ok_or(RwaError::ArithmeticOverflow)?
+                / 10000
+        };
+        require!(amount_in <= max_swap, RwaError::SwapExceedsWhaleLimit);
+
+        // Calculate swap output
+        let (amount_out, fee_amount) = pool
+            .calculate_swap_output(amount_in, is_token_to_sol)
+            .ok_or(RwaError::ArithmeticOverflow)?;
+
+        // Slippage check
+        require!(amount_out >= min_amount_out, RwaError::SlippageExceeded);
+
+        // Validate sufficient output reserves
+        let output_reserve = if is_token_to_sol {
+            pool.sol_reserve
+        } else {
+            pool.token_reserve
+        };
+        require!(amount_out < output_reserve, RwaError::InsufficientLiquidity);
+
+        (amount_out, fee_amount, pool.bump)
     };
-    require!(amount_in <= max_swap, RwaError::SwapExceedsWhaleLimit);
-
-    // Calculate swap output
-    let (amount_out, fee_amount) = pool
-        .calculate_swap_output(amount_in, is_token_to_sol)
-        .ok_or(RwaError::ArithmeticOverflow)?;
-
-    // Slippage check
-    require!(amount_out >= min_amount_out, RwaError::SlippageExceeded);
-
-    // Validate sufficient output reserves
-    let output_reserve = if is_token_to_sol {
-        pool.sol_reserve
-    } else {
-        pool.token_reserve
-    };
-    require!(amount_out < output_reserve, RwaError::InsufficientLiquidity);
 
     // Execute the swap
     let asset_key = ctx.accounts.asset.key();
+    let bump_slice = [pool_bump];
     let pool_seeds = &[
         LiquidityPool::SEED_PREFIX,
         asset_key.as_ref(),
-        &[pool.bump],
+        &bump_slice,
     ];
     let pool_signer = &[&pool_seeds[..]];
+
+    let mut dao_fee_routed: u64 = 0;
 
     if is_token_to_sol {
         // User sends tokens → receives SOL
@@ -141,10 +148,9 @@ pub fn handler(
         )?;
 
         // 2. Route Fee to DAO Treasury if present
-        let pool_data = &ctx.accounts.pool;
-        if pool_data.dao_fee_share_bps > 0 {
+        if ctx.accounts.pool.dao_fee_share_bps > 0 {
             let dao_fee = (fee_amount as u128)
-                .checked_mul(pool_data.dao_fee_share_bps as u128)
+                .checked_mul(ctx.accounts.pool.dao_fee_share_bps as u128)
                 .ok_or(RwaError::ArithmeticOverflow)?
                 .checked_div(10000)
                 .ok_or(RwaError::ArithmeticOverflow)? as u64;
@@ -152,9 +158,7 @@ pub fn handler(
             if dao_fee > 0 {
                 **ctx.accounts.pool.to_account_info().try_borrow_mut_lamports()? -= dao_fee;
                 **ctx.accounts.dao_treasury.to_account_info().try_borrow_mut_lamports()? += dao_fee;
-                
-                let pool_mut = &mut ctx.accounts.pool;
-                pool_mut.total_dao_fees_sol = pool_mut.total_dao_fees_sol.checked_add(dao_fee).unwrap();
+                dao_fee_routed = dao_fee;
             }
         }
 
@@ -172,10 +176,12 @@ pub fn handler(
             amount_out,
         )?;
     }
-
-    }
     
     // ── Step 8: Price Impact Guard ────────────────────────────
+    let pool = &mut ctx.accounts.pool;
+    if dao_fee_routed > 0 {
+        pool.total_dao_fees_sol = pool.total_dao_fees_sol.checked_add(dao_fee_routed).unwrap();
+    }
     // Calculate price movement: |P_new - P_old| / P_old
     // We utilize the Constant Product Formula property: P = y / x
     // To avoid floating point, we use: |y'/x' - y/x| <= 0.03 * y/x

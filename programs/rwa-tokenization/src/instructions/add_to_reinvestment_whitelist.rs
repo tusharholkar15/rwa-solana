@@ -15,7 +15,7 @@ pub fn handler(
     whitelist.is_active = true;
     whitelist.added_by = ctx.accounts.admin.key();
     whitelist.added_at = Clock::get()?.unix_timestamp;
-    whitelist.bump = *ctx.bumps.get("whitelist").unwrap();
+    whitelist.bump = ctx.bumps.whitelist;
 
     msg!("Strategy {} added to reinvestment whitelist by admin", whitelist.strategy_address);
     Ok(())
@@ -43,7 +43,7 @@ pub struct AddToReinvestmentWhitelist<'info> {
     #[account(
         seeds = [ProgramConfig::SEED_PREFIX],
         bump = config.bump,
-        constraint = config.authority == admin.key() @ RwaError::Unauthorized,
+        constraint = config.upgrade_authority == admin.key() @ RwaError::Unauthorized,
     )]
     pub config: Account<'info, ProgramConfig>,
 

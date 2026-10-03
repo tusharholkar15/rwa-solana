@@ -108,10 +108,12 @@ pub fn distribute_handler(ctx: Context<DistributeUsdcYield>, holder_amount: u64)
     );
 
     // Derive vault PDA signer seeds for CPI
+    let asset_key = asset.key();
+    let bump_slice = [vault.bump];
     let vault_seeds = &[
         RentVault::SEED_PREFIX,
-        asset.key().as_ref(),
-        &[vault.bump],
+        asset_key.as_ref(),
+        &bump_slice,
     ];
     let signer = &[&vault_seeds[..]];
 

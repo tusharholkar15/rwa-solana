@@ -253,4 +253,12 @@ pub enum RwaError {
     /// 6061 - Switchboard aggregator account is invalid or mismatched
     #[msg("Switchboard aggregator account is invalid or mismatched")]
     InvalidSwitchboardFeed,
+
+    /// 6062 - Auto compounding is disabled for this user
+    #[msg("Auto compounding is disabled for this user")]
+    AutoCompoundDisabled,
+
+    /// 6063 - Unclaimed yield is below minimum threshold for auto compounding
+    #[msg("Unclaimed yield is below minimum threshold for auto compounding")]
+    BelowCompoundThreshold,
 }

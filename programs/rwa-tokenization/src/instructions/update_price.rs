@@ -24,7 +24,7 @@ pub fn handler(
     switchboard_price: u64,    // Off-chain validated Switchboard price (lamports)
     twap_price: u64,           // Backend-computed 1h TWAP (lamports), 0 = use live only
 ) -> Result<()> {
-    let asset = &ctx.accounts.asset;
+    let asset = &mut ctx.accounts.asset;
     let clock = Clock::get()?;
 
     // Only authority can trigger price updates
@@ -34,8 +34,7 @@ pub fn handler(
     );
 
     // Check if circuit breaker is already tripped
-    let breaker = &ctx.accounts.circuit_breaker;
-    require!(!breaker.is_tripped, RwaError::OracleCircuitBreakerTripped);
+    require!(!ctx.accounts.circuit_breaker.is_tripped, RwaError::OracleCircuitBreakerTripped);
 
     // ── Step 1: Read Pyth Price Feed ─────────────────────────
     let price_update = &ctx.accounts.price_update;
@@ -50,7 +49,6 @@ pub fn handler(
         let is_tripping = breaker.should_trip_failure();
         if is_tripping {
             breaker.trip(OracleCircuitBreaker::TRIP_REASON_FAILURE, clock.unix_timestamp);
-            let asset = &mut ctx.accounts.asset;
             asset.is_active = false;
         }
 
@@ -91,7 +89,6 @@ pub fn handler(
 
         if breaker.should_trip_failure() {
             breaker.trip(OracleCircuitBreaker::TRIP_REASON_FAILURE, clock.unix_timestamp);
-            let asset = &mut ctx.accounts.asset;
             asset.is_active = false;
             return Err(RwaError::OracleCircuitBreakerTripped.into());
         }
@@ -233,7 +230,6 @@ pub fn handler(
         
         if deviation_bps > 2000 { // 20% variance trip
             breaker.trip(OracleCircuitBreaker::TRIP_REASON_ZSCORE, clock.unix_timestamp);
-            let asset = &mut ctx.accounts.asset;
             asset.is_active = false;
             
             emit!(crate::OracleZScoreBreachDetected {
@@ -248,7 +244,6 @@ pub fn handler(
     }
 
     // ── Step 6: Update Asset Price ────────────────────────────
-    let asset = &mut ctx.accounts.asset;
     asset.price_per_token = final_price;
     asset.last_price_update = clock.unix_timestamp;
     asset.oracle_source = oracle_source;
@@ -383,4 +378,55 @@ pub struct ResetCircuitBreaker<'info> {
         constraint = circuit_breaker.guardian == guardian.key() @ RwaError::Unauthorized,
     )]
     pub circuit_breaker: Account<'info, OracleCircuitBreaker>,
+}
+
+/// Initialize an oracle circuit breaker for an asset
+pub fn initialize_circuit_breaker_handler(
+    ctx: Context<InitializeCircuitBreaker>,
+    guardian: Pubkey,
+) -> Result<()> {
+    let breaker = &mut ctx.accounts.circuit_breaker;
+    breaker.asset = ctx.accounts.asset.key();
+    breaker.last_valid_price = 0;
+    breaker.last_valid_update_at = 0;
+    breaker.last_update_slot = 0;
+    breaker.consecutive_spread_breaches = 0;
+    breaker.consecutive_failures = 0;
+    breaker.is_tripped = false;
+    breaker.tripped_at = 0;
+    breaker.trip_reason = 0;
+    breaker.worst_spread_bps = 0;
+    breaker.guardian = guardian;
+    breaker.total_trips = 0;
+    breaker.price_sum_1h = 0;
+    breaker.price_count_1h = 0;
+    breaker.last_zscore_x100 = 0;
+    breaker.bump = ctx.bumps.circuit_breaker;
+
+    msg!("Circuit breaker initialized for asset '{}' with guardian {}", ctx.accounts.asset.name, guardian);
+    Ok(())
+}
+
+#[derive(Accounts)]
+pub struct InitializeCircuitBreaker<'info> {
+    #[account(mut)]
+    pub authority: Signer<'info>,
+
+    #[account(
+        seeds = [AssetAccount::SEED_PREFIX, asset.authority.as_ref(), asset.name.as_bytes()],
+        bump = asset.bump,
+        constraint = asset.authority == authority.key() @ RwaError::Unauthorized,
+    )]
+    pub asset: Account<'info, AssetAccount>,
+
+    #[account(
+        init,
+        payer = authority,
+        space = 8 + OracleCircuitBreaker::INIT_SPACE,
+        seeds = [OracleCircuitBreaker::SEED_PREFIX, asset.key().as_ref()],
+        bump,
+    )]
+    pub circuit_breaker: Account<'info, OracleCircuitBreaker>,
+
+    pub system_program: Program<'info, System>,
 }

@@ -44,6 +44,9 @@ pub struct EscrowAccount {
     /// Whether this is an institutional dark pool trade (requires match cert)
     pub is_dark_pool: bool,
 
+    /// In-flight settlement guard
+    pub is_settling: bool,
+
     /// Hash of the match payload (Asset + Amount + Price) — verified on settlement
     pub match_hash: [u8; 32],
 

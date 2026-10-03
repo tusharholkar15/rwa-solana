@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 use anchor_lang::system_program;
-use anchor_spl::token::{self, Token, TokenAccount};
+use anchor_spl::token::{self, Mint, Token, TokenAccount};
 
 use crate::errors::RwaError;
 use crate::state::{AssetAccount, EscrowAccount, EscrowStatus, WhitelistEntry, ESCROW_DISPUTE_WINDOW};
@@ -105,10 +105,14 @@ pub struct CreateEscrow<'info> {
     )]
     pub escrow: Account<'info, EscrowAccount>,
 
+    /// Asset mint
+    #[account(address = asset.mint)]
+    pub mint: Account<'info, Mint>,
+
     /// Seller's token account
     #[account(
         mut,
-        token::mint = asset.mint,
+        token::mint = mint,
         token::authority = seller,
     )]
     pub seller_token_account: Account<'info, TokenAccount>,
@@ -117,7 +121,7 @@ pub struct CreateEscrow<'info> {
     #[account(
         init,
         payer = buyer,
-        token::mint = asset.mint,
+        token::mint = mint,
         token::authority = escrow,
     )]
     pub escrow_token_account: Account<'info, TokenAccount>,

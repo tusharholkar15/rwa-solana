@@ -11,62 +11,60 @@ pub fn handler(
     matching_signature: Option<[u8; 64]>
 ) -> Result<()> {
     let clock = Clock::get()?;
-    let escrow = &ctx.accounts.escrow;
-    let config = &ctx.accounts.config;
-
-    // Validate escrow is funded
-    require!(
-        escrow.status == EscrowStatus::Funded,
-        RwaError::InvalidEscrowStatus
-    );
-
-    // Mutex: prevent double settlement
-    require!(!escrow.is_settling, RwaError::EscrowSettling);
-
-    if escrow.is_dark_pool {
-        // ── Institutional Dark Pool Verification ────────────────
-        // Dark pool trades settle INSTANTLY but ONLY with a valid match cert.
-        let sig = matching_signature.ok_or(RwaError::InvalidMatchCertificate)?;
-        
-        // Match Verification: In MVP+ we verify the caller is a party and log authority.
-        // Full production logic would call Ed25519 verification.
+    {
+        let escrow = &ctx.accounts.escrow;
+        // Validate escrow is funded
         require!(
-            ctx.accounts.settler.key() == escrow.buyer || ctx.accounts.settler.key() == escrow.seller,
-            RwaError::Unauthorized
+            escrow.status == EscrowStatus::Funded,
+            RwaError::InvalidEscrowStatus
         );
-        
-        msg!("Dark Pool Match Verified against Authority: {}", config.dark_pool_matching_authority);
-    } else {
-        // Standard P2P Escrow: wait for dispute window OR arbitrator
-        let is_arbitrator = ctx.accounts.settler.key() == escrow.arbitrator;
-        let is_party = ctx.accounts.settler.key() == escrow.buyer
-            || ctx.accounts.settler.key() == escrow.seller;
 
-        if !is_arbitrator {
-            require!(is_party, RwaError::Unauthorized);
+        // Mutex: prevent double settlement
+        require!(!escrow.is_settling, RwaError::EscrowSettling);
+
+        if escrow.is_dark_pool {
+            // ── Institutional Dark Pool Verification ────────────────
+            // Dark pool trades settle INSTANTLY but ONLY with a valid match cert.
+            let _sig = matching_signature.ok_or(RwaError::InvalidMatchCertificate)?;
+            
+            // Match Verification: In MVP+ we verify the caller is a party and log authority.
+            // Full production logic would call Ed25519 verification.
             require!(
-                escrow.is_dispute_window_expired(clock.unix_timestamp),
-                RwaError::DisputeWindowExpired
+                ctx.accounts.settler.key() == escrow.buyer || ctx.accounts.settler.key() == escrow.seller,
+                RwaError::Unauthorized
             );
+            
+            msg!("Dark Pool Match Verified against Authority: {}", ctx.accounts.config.dark_pool_matching_authority);
+        } else {
+            // Standard P2P Escrow: wait for dispute window OR arbitrator
+            let is_arbitrator = ctx.accounts.settler.key() == escrow.arbitrator;
+            let is_party = ctx.accounts.settler.key() == escrow.buyer
+                || ctx.accounts.settler.key() == escrow.seller;
+
+            if !is_arbitrator {
+                require!(is_party, RwaError::Unauthorized);
+                require!(
+                    escrow.is_dispute_window_expired(clock.unix_timestamp),
+                    RwaError::DisputeWindowExpired
+                );
+            }
         }
     }
 
-    // Set mutex
-    let escrow = &mut ctx.accounts.escrow;
-    escrow.is_settling = true;
+    // Set mutex & extract values
+    let (buyer_key, seller_key, asset_key, escrow_bump, token_amount, sol_amount) = {
+        let escrow = &mut ctx.accounts.escrow;
+        escrow.is_settling = true;
+        (escrow.buyer, escrow.seller, escrow.asset, escrow.bump, escrow.token_amount, escrow.sol_amount)
+    };
 
-    // Transfer tokens from escrow to buyer
-    let buyer_key = escrow.buyer;
-    let seller_key = escrow.seller;
-    let asset_key = escrow.asset;
-    let escrow_bump = escrow.bump;
-
+    let bump_slice = [escrow_bump];
     let escrow_seeds = &[
         EscrowAccount::SEED_PREFIX,
         buyer_key.as_ref(),
         seller_key.as_ref(),
         asset_key.as_ref(),
-        &[escrow_bump],
+        &bump_slice,
     ];
     let escrow_signer = &[&escrow_seeds[..]];
 
@@ -80,11 +78,10 @@ pub fn handler(
             },
             escrow_signer,
         ),
-        escrow.token_amount,
+        token_amount,
     )?;
 
     // Transfer SOL from escrow to seller
-    let sol_amount = escrow.sol_amount;
     **ctx
         .accounts
         .escrow
@@ -104,8 +101,8 @@ pub fn handler(
 
     msg!(
         "Escrow settled: {} tokens → buyer, {} SOL → seller",
-        escrow.token_amount,
-        escrow.sol_amount
+        token_amount,
+        sol_amount
     );
 
     Ok(())

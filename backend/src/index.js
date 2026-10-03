@@ -154,8 +154,8 @@ app.get("/api/health", async (req, res) => {
   }
 
   try {
-    const connection = new Connection(process.env.SOLANA_RPC_URL || "https://api.testnet.solana.com");
-    // Use 2s timeout to prevent health check from hanging on slow testnet RPCs
+    const connection = new Connection(process.env.SOLANA_RPC_URL || "https://api.devnet.solana.com");
+    // Use 2s timeout to prevent health check from hanging on slow devnet RPCs
     await Promise.race([
       connection.getSlot(),
       new Promise((_, reject) => setTimeout(() => reject(new Error("RPC Timeout")), 2000))
@@ -185,7 +185,7 @@ app.get("/api/health", async (req, res) => {
       oracle: oracleStatus,
     },
     timestamp: new Date().toISOString(),
-    network: process.env.SOLANA_NETWORK || "testnet",
+    network: process.env.SOLANA_NETWORK || "devnet",
     version: "1.2.0-stable",
   });
 });
@@ -256,7 +256,7 @@ async function startServer() {
 ║     🏗️  RWA Tokenization Platform - Backend API     ║
 ╠══════════════════════════════════════════════════════╣
 ║  Server:   http://localhost:${PORT}                    ║
-║  Network:  ${(process.env.SOLANA_NETWORK || "testnet").padEnd(40)}║
+║  Network:  ${(process.env.SOLANA_NETWORK || "devnet").padEnd(40)}║
 ║  MongoDB:  Connected                                ║
 ║  Websocket:Ready ✅                                  ║
 ║  Status:   Ready ✅                                  ║

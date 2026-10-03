@@ -1,8 +1,9 @@
 use anchor_lang::prelude::*;
+use anchor_lang::solana_program::program_pack::Pack;
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
 
 use crate::errors::RwaError;
-use crate::state::{AssetAccount, TreasuryVault, PriceHistory, OracleCircuitBreaker};
+use crate::state::{AssetAccount, TreasuryVault};
 
 /// Initialize a new tokenized real-world asset
 /// Creates the asset PDA, SPL token mint, treasury vault, and treasury token account
@@ -53,22 +54,38 @@ pub fn handler(
     treasury.available_for_yield = 0;
     treasury.bump = ctx.bumps.treasury;
 
-    // Initialize the price history
-    let price_history = &mut ctx.accounts.price_history;
-    price_history.asset = asset.key();
-    price_history.head = 0;
-    price_history.count = 0;
-    price_history.bump = ctx.bumps.price_history;
+    // Create and initialize the treasury token account
+    let rent = Rent::get()?;
+    let space = anchor_spl::token::spl_token::state::Account::LEN;
+    let lamports = rent.minimum_balance(space);
 
-    // Initialize the oracle circuit breaker
-    let breaker = &mut ctx.accounts.circuit_breaker;
-    breaker.asset = asset.key();
-    breaker.guardian = ctx.accounts.authority.key();
-    breaker.is_tripped = false;
-    breaker.bump = ctx.bumps.circuit_breaker;
+    anchor_lang::solana_program::program::invoke(
+        &anchor_lang::solana_program::system_instruction::create_account(
+            ctx.accounts.authority.key,
+            ctx.accounts.treasury_token_account.key,
+            lamports,
+            space as u64,
+            ctx.accounts.token_program.key,
+        ),
+        &[
+            ctx.accounts.authority.to_account_info(),
+            ctx.accounts.treasury_token_account.to_account_info(),
+            ctx.accounts.system_program.to_account_info(),
+        ],
+    )?;
+
+    token::initialize_account3(
+        CpiContext::new(
+            ctx.accounts.token_program.to_account_info(),
+            token::InitializeAccount3 {
+                account: ctx.accounts.treasury_token_account.to_account_info(),
+                mint: ctx.accounts.mint.to_account_info(),
+                authority: ctx.accounts.treasury.to_account_info(),
+            },
+        ),
+    )?;
 
     // Mint the total supply to the treasury token account
-    let asset_key = ctx.accounts.asset.key();
     let seeds = &[
         AssetAccount::SEED_PREFIX,
         ctx.accounts.authority.key.as_ref(),
@@ -115,7 +132,7 @@ pub struct InitializeAsset<'info> {
         seeds = [AssetAccount::SEED_PREFIX, authority.key().as_ref(), name.as_bytes()],
         bump,
     )]
-    pub asset: Account<'info, AssetAccount>,
+    pub asset: Box<Account<'info, AssetAccount>>,
 
     /// The SPL token mint for this asset's fractional tokens
     #[account(
@@ -125,7 +142,7 @@ pub struct InitializeAsset<'info> {
         mint::authority = asset,
         mint::freeze_authority = asset,
     )]
-    pub mint: Account<'info, Mint>,
+    pub mint: Box<Account<'info, Mint>>,
 
     /// Treasury vault PDA
     #[account(
@@ -135,36 +152,12 @@ pub struct InitializeAsset<'info> {
         seeds = [TreasuryVault::SEED_PREFIX, asset.key().as_ref()],
         bump,
     )]
-    pub treasury: Account<'info, TreasuryVault>,
+    pub treasury: Box<Account<'info, TreasuryVault>>,
 
     /// Treasury's token account to hold the minted supply
-    #[account(
-        init,
-        payer = authority,
-        token::mint = mint,
-        token::authority = treasury,
-    )]
-    pub treasury_token_account: Account<'info, TokenAccount>,
-
-    /// PDA to store historical price points for TWAP fallback
-    #[account(
-        init,
-        payer = authority,
-        space = 8 + PriceHistory::INIT_SPACE,
-        seeds = [PriceHistory::SEED_PREFIX, asset.key().as_ref()],
-        bump
-    )]
-    pub price_history: Account<'info, PriceHistory>,
-
-    /// Circuit breaker PDA for this asset
-    #[account(
-        init,
-        payer = authority,
-        space = 8 + OracleCircuitBreaker::INIT_SPACE,
-        seeds = [OracleCircuitBreaker::SEED_PREFIX, asset.key().as_ref()],
-        bump
-    )]
-    pub circuit_breaker: Account<'info, OracleCircuitBreaker>,
+    /// CHECK: Created and initialized in handler via CPI to minimize try_accounts stack frame
+    #[account(mut)]
+    pub treasury_token_account: Signer<'info>,
 
     /// Standard programs
     pub token_program: Program<'info, Token>,

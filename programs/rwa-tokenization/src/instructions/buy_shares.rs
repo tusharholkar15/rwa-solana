@@ -54,10 +54,12 @@ pub fn handler(ctx: Context<BuyShares>, amount: u64) -> Result<()> {
     )?;
 
     // Transfer SPL tokens from treasury token account to buyer token account
+    let asset_key = ctx.accounts.asset.key();
+    let bump_slice = [ctx.accounts.treasury.bump];
     let treasury_seeds = &[
         TreasuryVault::SEED_PREFIX,
-        ctx.accounts.asset.key().as_ref(),
-        &[ctx.accounts.treasury.bump],
+        asset_key.as_ref(),
+        &bump_slice,
     ];
     let treasury_signer = &[&treasury_seeds[..]];
 
@@ -90,6 +92,7 @@ pub fn handler(ctx: Context<BuyShares>, amount: u64) -> Result<()> {
 
     // ── Yield Checkpointing ─────────────────────────────────────
     // Realize current pending yield before share count changes
+    let ownership = &mut ctx.accounts.user_ownership;
     if ownership.shares_owned > 0 {
         let total_acc_scaled = (ownership.shares_owned as u128)
             .checked_mul(asset.accumulated_yield_per_share)
@@ -109,16 +112,15 @@ pub fn handler(ctx: Context<BuyShares>, amount: u64) -> Result<()> {
         // Logic: new_debt = (new_shares * acc) - remainder
         // But we update shares below, so we'll do the final debt set after that.
         // We'll store the remainder for now.
-        ctx.accounts.user_ownership.yield_debt = remainder; 
+        ownership.yield_debt = remainder; 
     } else {
-        ctx.accounts.user_ownership.yield_debt = 0;
+        ownership.yield_debt = 0;
     }
 
     // Update user ownership record via centralized acquisition method
-    let ownership = &mut ctx.accounts.user_ownership;
     if ownership.shares_owned == 0 {
         ownership.owner = ctx.accounts.buyer.key();
-        ownership.asset = ctx.accounts.asset.key();
+        ownership.asset = asset_key;
         ownership.first_purchase_at = clock.unix_timestamp;
     }
     

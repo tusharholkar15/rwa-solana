@@ -8,31 +8,29 @@ use crate::state::{EscrowAccount, EscrowStatus};
 /// Called after a dispute is resolved in buyer's favor, or if the escrow is cancelled.
 pub fn handler(ctx: Context<RefundEscrow>) -> Result<()> {
     let clock = Clock::get()?;
-    let escrow = &ctx.accounts.escrow;
 
     // Only refundable states
     require!(
-        escrow.status == EscrowStatus::Refunded
-            || escrow.status == EscrowStatus::Created,
+        ctx.accounts.escrow.status == EscrowStatus::Refunded
+            || ctx.accounts.escrow.status == EscrowStatus::Created,
         RwaError::InvalidEscrowStatus
     );
 
-    require!(!escrow.is_settling, RwaError::EscrowSettling);
+    require!(!ctx.accounts.escrow.is_settling, RwaError::EscrowSettling);
 
-    let escrow = &mut ctx.accounts.escrow;
-    escrow.is_settling = true;
+    let (buyer_key, seller_key, asset_key, escrow_bump, token_amount, sol_amount) = {
+        let escrow = &mut ctx.accounts.escrow;
+        escrow.is_settling = true;
+        (escrow.buyer, escrow.seller, escrow.asset, escrow.bump, escrow.token_amount, escrow.sol_amount)
+    };
 
-    let buyer_key = escrow.buyer;
-    let seller_key = escrow.seller;
-    let asset_key = escrow.asset;
-    let escrow_bump = escrow.bump;
-
+    let bump_slice = [escrow_bump];
     let escrow_seeds = &[
         EscrowAccount::SEED_PREFIX,
         buyer_key.as_ref(),
         seller_key.as_ref(),
         asset_key.as_ref(),
-        &[escrow_bump],
+        &bump_slice,
     ];
     let escrow_signer = &[&escrow_seeds[..]];
 
@@ -47,11 +45,10 @@ pub fn handler(ctx: Context<RefundEscrow>) -> Result<()> {
             },
             escrow_signer,
         ),
-        escrow.token_amount,
+        token_amount,
     )?;
 
     // Return SOL to buyer
-    let sol_amount = escrow.sol_amount;
     **ctx
         .accounts
         .escrow
@@ -69,7 +66,7 @@ pub fn handler(ctx: Context<RefundEscrow>) -> Result<()> {
     escrow.settled_at = clock.unix_timestamp;
     escrow.is_settling = false;
 
-    msg!("Escrow refunded: {} tokens → seller, {} SOL → buyer", escrow.token_amount, sol_amount);
+    msg!("Escrow refunded: {} tokens → seller, {} SOL → buyer", token_amount, sol_amount);
 
     Ok(())
 }

@@ -3,16 +3,19 @@ seeds = false
 skip-lint = false
 
 [programs.localnet]
-rwa_tokenization = "RwaP111111111111111111111111111111111111111"
+rwa_tokenization = "FRYwN6vKAVhQNvEcJ8844XxLe3b8zLwivnZk65dnW9HC"
+
+[programs.devnet]
+rwa_tokenization = "FRYwN6vKAVhQNvEcJ8844XxLe3b8zLwivnZk65dnW9HC"
 
 [programs.testnet]
-rwa_tokenization = "RwaP111111111111111111111111111111111111111"
+rwa_tokenization = "FRYwN6vKAVhQNvEcJ8844XxLe3b8zLwivnZk65dnW9HC"
 
 [registry]
 url = "https://api.apr.dev"
 
 [provider]
-cluster = "Localnet"
+cluster = "Devnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]

@@ -59,7 +59,7 @@ class IndexerService {
 
     try {
       const programId = new anchor.web3.PublicKey(
-        process.env.PROGRAM_ID || "RwaP111111111111111111111111111111111111111"
+        process.env.PROGRAM_ID || "FRYwN6vKAVhQNvEcJ8844XxLe3b8zLwivnZk65dnW9HC"
       );
       const coder = new anchor.BorshCoder(idl);
       this.eventParser = new anchor.EventParser(programId, coder);
@@ -80,7 +80,7 @@ class IndexerService {
 
     logger.info(`[Indexer] Received ${payload.length} event(s) from webhook`);
 
-    const PROGRAM_ID = process.env.PROGRAM_ID || "RwaP111111111111111111111111111111111111111";
+    const PROGRAM_ID = process.env.PROGRAM_ID || "FRYwN6vKAVhQNvEcJ8844XxLe3b8zLwivnZk65dnW9HC";
 
     const results = await Promise.allSettled(
       payload.map(async (tx) => {
@@ -299,10 +299,10 @@ class IndexerService {
       logger.info("[Indexer] Reconciliation scan started...");
 
       const programId  = new anchor.web3.PublicKey(
-        process.env.PROGRAM_ID || "RwaP111111111111111111111111111111111111111"
+        process.env.PROGRAM_ID || "FRYwN6vKAVhQNvEcJ8844XxLe3b8zLwivnZk65dnW9HC"
       );
       const connection = new anchor.web3.Connection(
-        process.env.SOLANA_RPC_URL || "https://api.testnet.solana.com",
+        process.env.SOLANA_RPC_URL || "https://api.devnet.solana.com",
         "confirmed"
       );
 

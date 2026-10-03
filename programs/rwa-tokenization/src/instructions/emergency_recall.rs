@@ -58,7 +58,7 @@ pub struct EmergencyRecall<'info> {
     #[account(
         seeds = [ProgramConfig::SEED_PREFIX],
         bump = config.bump,
-        constraint = config.authority == admin.key() @ RwaError::Unauthorized,
+        constraint = config.upgrade_authority == admin.key() @ RwaError::Unauthorized,
     )]
     pub config: Account<'info, ProgramConfig>,
 
